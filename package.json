@@ -1,0 +1,19 @@
+{
+  "name": "support-ticket-ai",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": ["apps/*"],
+  "engines": { "node": ">=22.12.0", "npm": ">=10" },
+  "scripts": {
+    "dev": "concurrently -k -n api,web \"npm run dev -w @support/api\" \"npm run dev -w @support/web\"",
+    "build": "npm run build --workspaces",
+    "typecheck": "npm run typecheck --workspaces",
+    "test": "npm run test --workspaces"
+  },
+  "overrides": { "vitest": "~4.1.11" },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "typescript": "~5.9.3",
+    "vitest": "~4.1.11"
+  }
+}

@@ -1,0 +1,86 @@
+name: support-ticket-ai
+
+services:
+  db:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_USER: support
+      POSTGRES_DB: support
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Export POSTGRES_PASSWORD (see README.md)}
+    ports:
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U support -d support"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  dependencies:
+    image: node:22-bookworm-slim
+    working_dir: /workspace
+    command: npm ci --cache /workspace/node_modules/.npm-cache
+    volumes:
+      - .:/workspace
+      - node-modules:/workspace/node_modules
+      - api-node-modules:/workspace/apps/api/node_modules
+      - web-node-modules:/workspace/apps/web/node_modules
+
+  api:
+    image: node:22-bookworm-slim
+    working_dir: /workspace
+    command: npm run dev -w @support/api
+    environment:
+      DATABASE_URL: postgresql://support:${POSTGRES_PASSWORD:?Export POSTGRES_PASSWORD (see README.md)}@db:5432/support
+      PORT: "3001"
+    ports:
+      - "127.0.0.1:3001:3001"
+    volumes:
+      - .:/workspace
+      - node-modules:/workspace/node_modules
+      - api-node-modules:/workspace/apps/api/node_modules
+      - web-node-modules:/workspace/apps/web/node_modules
+    depends_on:
+      dependencies:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 4s
+      retries: 12
+      start_period: 10s
+
+  web:
+    image: node:22-bookworm-slim
+    working_dir: /workspace
+    command: npm run dev -w @support/web
+    environment:
+      API_PROXY_TARGET: http://api:3001
+      WATCH_POLLING: "true"
+    ports:
+      - "127.0.0.1:5173:5173"
+    volumes:
+      - .:/workspace
+      - node-modules:/workspace/node_modules
+      - api-node-modules:/workspace/apps/api/node_modules
+      - web-node-modules:/workspace/apps/web/node_modules
+    depends_on:
+      dependencies:
+        condition: service_completed_successfully
+      api:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5173').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 4s
+      retries: 12
+      start_period: 10s
+
+volumes:
+  postgres-data:
+  node-modules:
+  api-node-modules:
+  web-node-modules:

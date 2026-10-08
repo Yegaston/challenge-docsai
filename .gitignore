@@ -1,0 +1,14 @@
+# Local Pi runtime state
+.atl/
+
+# Dependencies and generated output
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Local environment overrides (examples are safe to commit)
+.env
+.env.*
+!.env.example
+*.log
