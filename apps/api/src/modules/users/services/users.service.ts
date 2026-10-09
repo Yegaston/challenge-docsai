@@ -1,4 +1,4 @@
-import type { UserSeedRepository } from "./repository.js";
+import type { UserSeedRepository } from "../repositories/users.repository.js";
 
 export function normalizeEmail(value: unknown): string | undefined {
   if (typeof value !== "string" || value.length > 254) return;

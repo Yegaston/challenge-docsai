@@ -1,7 +1,7 @@
 import express, { type ErrorRequestHandler, type RequestHandler, type Response } from "express";
-import { normalizeEmail } from "../../users/service.js";
-import { validPassword } from "../password.js";
-import { AuthError, type AuthService } from "../service.js";
+import { normalizeEmail } from "../../users/services/users.service.js";
+import { validPassword } from "../utils/password.js";
+import { AuthError, type AuthService } from "../services/auth.service.js";
 
 function sendError(response: Response, error: unknown) {
   if (error instanceof AuthError && error.kind !== "unavailable") {

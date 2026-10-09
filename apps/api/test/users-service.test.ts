@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { seedDemoUser } from "../src/modules/users/service.js";
+import { seedDemoUser } from "../src/modules/users/services/users.service.js";
 
 it("normalizes seed input and orchestrates plain persistence and password dependencies", async () => {
   const insert = vi.fn();

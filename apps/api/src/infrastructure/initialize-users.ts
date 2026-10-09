@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { hashPassword } from "../modules/auth/password.js";
-import { createUsers } from "../modules/users/repository.js";
-import { seedDemoUser, validateSeed } from "../modules/users/service.js";
+import { hashPassword } from "../modules/auth/utils/password.js";
+import { createUsers } from "../modules/users/repositories/users.repository.js";
+import { seedDemoUser, validateSeed } from "../modules/users/services/users.service.js";
 
 type Database = Parameters<typeof createUsers>[0];
 

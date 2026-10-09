@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { jwtVerify, SignJWT } from "jose";
-import type { Users } from "../users/repository.js";
-import { hashPassword, verifyPassword } from "./password.js";
+import type { Users } from "../../users/repositories/users.repository.js";
+import { hashPassword, verifyPassword } from "../utils/password.js";
 
 const issuer = "support-ticket-api";
 const audience = "support-ticket-web";

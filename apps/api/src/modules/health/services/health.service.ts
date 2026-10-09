@@ -1,4 +1,4 @@
-import type { HealthRepository } from "./repository.js";
+import type { HealthRepository } from "../repositories/health.repository.js";
 
 export function createHealthService(repository: HealthRepository) {
   return async () => {

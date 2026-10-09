@@ -1,5 +1,5 @@
 import { Router } from "express";
-import type { createHealthService } from "../service.js";
+import type { createHealthService } from "../services/health.service.js";
 
 export function createHealthRouter(check: ReturnType<typeof createHealthService>) {
   const router = Router();

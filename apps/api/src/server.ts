@@ -1,9 +1,9 @@
 import { Pool } from "pg";
 import { createApp } from "./app.js";
 import { createAuthRouter } from "./modules/auth/http/controller.js";
-import { createAuthService } from "./modules/auth/service.js";
-import { createUsers } from "./modules/users/repository.js";
-import { createHealthRepository } from "./modules/health/repository.js";
+import { createAuthService } from "./modules/auth/services/auth.service.js";
+import { createUsers } from "./modules/users/repositories/users.repository.js";
+import { createHealthRepository } from "./modules/health/repositories/health.repository.js";
 import { initializeUsers } from "./infrastructure/initialize-users.js";
 
 if (!process.env.DATABASE_URL) {

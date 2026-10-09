@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { createUsers } from "../src/modules/users/repository.js";
+import { createUsers } from "../src/modules/users/repositories/users.repository.js";
 
 it("parameterizes every persisted field and preserves conflict-safe inserts", async () => {
   const query = vi.fn().mockResolvedValue({ rows: [] });

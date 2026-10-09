@@ -1,6 +1,6 @@
 import express from "express";
 import { createHealthRouter } from "./modules/health/http/controller.js";
-import { createHealthService } from "./modules/health/service.js";
+import { createHealthService } from "./modules/health/services/health.service.js";
 
 export function createApp(checkDatabase: () => Promise<void>, auth?: express.Router) {
   const app = express();

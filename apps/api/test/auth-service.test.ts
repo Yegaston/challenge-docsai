@@ -1,6 +1,6 @@
 import { expect, it, vi } from "vitest";
-import { createAuthService } from "../src/modules/auth/service.js";
-import { hashPassword } from "../src/modules/auth/password.js";
+import { createAuthService } from "../src/modules/auth/services/auth.service.js";
+import { hashPassword } from "../src/modules/auth/utils/password.js";
 
 it("authenticates without HTTP, resolves current identity, and rejects expired sessions", async () => {
   let time = new Date("2026-01-01T00:00:00Z");
