@@ -1,6 +1,6 @@
 import express from "express";
 
-export function createApp(checkDatabase: () => Promise<void>) {
+export function createApp(checkDatabase: () => Promise<void>, auth?: express.Router) {
   const app = express();
   app.disable("x-powered-by");
 
@@ -15,5 +15,6 @@ export function createApp(checkDatabase: () => Promise<void>) {
     }
   });
 
+  if (auth) app.use("/api/auth", auth);
   return app;
 }

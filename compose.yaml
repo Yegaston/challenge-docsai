@@ -34,6 +34,9 @@ services:
     environment:
       DATABASE_URL: postgresql://support:${POSTGRES_PASSWORD:?Export POSTGRES_PASSWORD (see README.md)}@db:5432/support
       PORT: "3001"
+      DEMO_EMAIL: ${DEMO_EMAIL:?Export DEMO_EMAIL (see README.md)}
+      DEMO_PASSWORD: ${DEMO_PASSWORD:?Export DEMO_PASSWORD (see README.md)}
+      JWT_SECRET: ${JWT_SECRET:?Export JWT_SECRET (see README.md)}
     ports:
       - "127.0.0.1:3001:3001"
     volumes:

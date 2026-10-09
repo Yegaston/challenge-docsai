@@ -1,5 +1,7 @@
 import { Pool } from "pg";
 import { createApp } from "./app.js";
+import { createAuth } from "./auth.js";
+import { createUsers, seedDemoUser } from "./demo-user.js";
 
 if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL is required. See README.md for local setup.");
@@ -19,9 +21,20 @@ const pool = new Pool({
 });
 pool.on("error", () => console.error("An idle database connection failed."));
 
+let auth;
+try {
+  auth = await createAuth({ users: createUsers(pool), secret: process.env.JWT_SECRET });
+  await seedDemoUser(pool, process.env.DEMO_EMAIL, process.env.DEMO_PASSWORD);
+} catch {
+  // Startup errors may contain driver details or credentials: never print them.
+  console.error("Authentication initialization failed. Check database access and DEMO_EMAIL, DEMO_PASSWORD, JWT_SECRET configuration (README.md).");
+  await pool.end();
+  process.exit(1);
+}
+
 const app = createApp(async () => {
   await pool.query("SELECT 1");
-});
+}, auth);
 const server = app.listen(port, "0.0.0.0", () => {
   console.log(`API listening on port ${port}`);
 });

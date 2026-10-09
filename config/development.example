@@ -1,4 +1,10 @@
 # Example shell values for local development only. Choose your own URL-safe password.
-# Export POSTGRES_PASSWORD and, for host Node development, DATABASE_URL as shown in README.md.
+# Export values as shown in README.md; this file is not loaded automatically.
+# Authentication variables are backend-only. Never use VITE_* for secrets.
 POSTGRES_PASSWORD=
+DEMO_EMAIL=
+# 12–256 characters; initial seed only, not a password-rotation mechanism.
+DEMO_PASSWORD=
+# At least 32 random bytes. Keep stable across restarts unless invalidating tokens.
+JWT_SECRET=
 DB_PORT=5432
