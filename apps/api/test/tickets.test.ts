@@ -1,0 +1,157 @@
+import request from "supertest";
+import { SignJWT } from "jose";
+import { beforeAll, beforeEach, expect, it, vi } from "vitest";
+import { createApp } from "../src/app.js";
+import { createAuthRouter } from "../src/modules/auth/http/controller.js";
+import { createAuthService } from "../src/modules/auth/services/auth.service.js";
+import { createTicketsRouter } from "../src/modules/tickets/http/controller.js";
+import { createTicketsService } from "../src/modules/tickets/services/tickets.service.js";
+import type { TicketRow } from "../src/modules/tickets/repositories/tickets.repository.js";
+
+const owner = "00000000-0000-4000-8000-000000000001";
+const other = "00000000-0000-4000-8000-000000000002";
+const ticketId = "00000000-0000-4000-8000-000000000003";
+const unknownId = "00000000-0000-4000-8000-000000000004";
+const now = new Date("2026-01-01T00:00:00Z");
+const secret = "synthetic-ticket-test-key-".repeat(4);
+let rows: TicketRow[];
+let app: ReturnType<typeof createApp>;
+let bearer: string;
+let otherBearer: string;
+let expired: string;
+const users = { byEmail: vi.fn(), byId: vi.fn() };
+const repository = {
+  insert: vi.fn(async (row: TicketRow) => { rows.push(row); return row; }),
+  list: vi.fn(async (id: string) => rows.filter((row) => row.owner_id === id)),
+  byId: vi.fn(async (id: string, user: string) => rows.find((row) => row.id === id && row.owner_id === user)),
+};
+
+async function token(id: string, exp = now.getTime() / 1000 + 900) {
+  return new SignJWT({ sub: id, iss: "support-ticket-api", aud: "support-ticket-web", iat: now.getTime() / 1000, exp })
+    .setProtectedHeader({ alg: "HS256" }).sign(new TextEncoder().encode(secret));
+}
+
+beforeAll(async () => {
+  const auth = await createAuthService({ users, secret, now: () => now });
+  const tickets = createTicketsService(repository, { id: () => ticketId, now: () => now });
+  app = createApp(async () => {}, createAuthRouter(auth), createTicketsRouter(tickets, auth));
+  bearer = await token(owner);
+  otherBearer = await token(other);
+  expired = await token(owner, now.getTime() / 1000);
+});
+beforeEach(() => {
+  vi.clearAllMocks();
+  rows = [];
+  users.byId.mockImplementation(async (id) => [owner, other].includes(id) ? { id, email: "user@example.test" } : undefined);
+});
+
+it("creates trimmed tickets independently of analysis, ignoring supplied identity and metadata", async () => {
+  const response = await request(app).post("/api/tickets").auth(bearer, { type: "bearer" })
+    .send({ text: "  Help\nplease  ", owner_id: other, ownerId: other, id: unknownId, createdAt: "forged" });
+  expect(response.status).toBe(201);
+  expect(response.headers["cache-control"]).toBe("no-store");
+  expect(response.body).toEqual({ ticket: { id: ticketId, text: "Help\nplease", createdAt: now.toISOString() } });
+  expect(rows[0]).toEqual({ id: ticketId, owner_id: owner, text: "Help\nplease", created_at: now });
+  const detail = await request(app).get(`/api/tickets/${ticketId}`).auth(bearer, { type: "bearer" });
+  expect(detail.status).toBe(200);
+  expect(detail.body).toEqual(response.body);
+  expect(detail.headers["cache-control"]).toBe("no-store");
+});
+
+it("lists only the verified owner's records and hides foreign detail exactly like unknown detail", async () => {
+  rows.push({ id: ticketId, owner_id: owner, text: "mine", created_at: now });
+  const mine = await request(app).get("/api/tickets").auth(bearer, { type: "bearer" });
+  expect(mine.body).toEqual({ tickets: [{ id: ticketId, text: "mine", createdAt: now.toISOString() }] });
+  expect(mine.status).toBe(200);
+  expect(mine.headers["cache-control"]).toBe("no-store");
+  const theirs = await request(app).get("/api/tickets").auth(otherBearer, { type: "bearer" });
+  expect(theirs.body).toEqual({ tickets: [] });
+  const foreign = await request(app).get(`/api/tickets/${ticketId}`).auth(otherBearer, { type: "bearer" });
+  const missing = await request(app).get(`/api/tickets/${unknownId}`).auth(otherBearer, { type: "bearer" });
+  expect(foreign.status).toBe(404);
+  expect(missing.status).toBe(404);
+  expect(foreign.body).toEqual(missing.body);
+  expect(foreign.headers["cache-control"]).toBe("no-store");
+});
+
+it("returns every repository-ordered record without pagination or private fields", async () => {
+  const ordered = [unknownId, ticketId].map((id) => ({ id, owner_id: owner, text: id, created_at: now }));
+  repository.list.mockResolvedValueOnce(ordered);
+  const response = await request(app).get("/api/tickets").auth(bearer, { type: "bearer" });
+  expect(response.status).toBe(200);
+  expect(response.body.tickets).toEqual(ordered.map(({ id, text, created_at }) => ({ id, text, createdAt: created_at.toISOString() })));
+  expect(repository.list).toHaveBeenCalledWith(owner);
+});
+
+it.each([{}, { text: "" }, { text: " \n\t " }, { text: "x".repeat(20001) }, { text: 1 }, { text: null }, { text: [] }])
+  ("rejects invalid text %# before persistence", async (body) => {
+    const response = await request(app).post("/api/tickets").auth(bearer, { type: "bearer" }).send(body);
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ error: "Invalid ticket request." });
+    expect(repository.insert).not.toHaveBeenCalled();
+  });
+
+it("rejects embedded NUL before calling the repository", async () => {
+  const response = await request(app).post("/api/tickets").auth(bearer, { type: "bearer" }).send({ text: "help\u0000please" });
+  expect(repository.insert).not.toHaveBeenCalled();
+  expect(response.status).toBe(400);
+  expect(response.body).toEqual({ error: "Invalid ticket request." });
+  expect(response.headers["cache-control"]).toBe("no-store");
+});
+
+it.each(["x".repeat(20000), "😀".repeat(10000)])("accepts exactly 20000 JS characters after trimming %#", async (text) => {
+  const response = await request(app).post("/api/tickets").auth(bearer, { type: "bearer" }).send({ text: ` ${text} ` });
+  expect(response.status).toBe(201);
+  expect(response.body.ticket.text).toBe(text);
+});
+
+it("accepts a maximum-length string even with six-byte JSON escaping", async () => {
+  const text = "\u0001".repeat(20000);
+  const response = await request(app).post("/api/tickets").auth(bearer, { type: "bearer" }).send({ text });
+  expect(response.status).toBe(201);
+  expect(response.body.ticket.text).toBe(text);
+});
+
+it.each(["{", "null", "[]", JSON.stringify({ text: "x".repeat(140000) })])("safely rejects malformed or over-limit JSON %#", async (body) => {
+  const response = await request(app).post("/api/tickets").auth(bearer, { type: "bearer" })
+    .set("Content-Type", "application/json").send(body);
+  expect(response.status).toBe(body.length > 130000 ? 413 : 400);
+  expect(response.body).toEqual({ error: "Invalid ticket request." });
+  expect(response.headers["cache-control"]).toBe("no-store");
+});
+
+it("rejects non-JSON bodies and malformed UUIDs", async () => {
+  expect((await request(app).post("/api/tickets").auth(bearer, { type: "bearer" }).type("form").send({ text: "help" })).status).toBe(400);
+  const response = await request(app).get("/api/tickets/not-a-uuid").auth(bearer, { type: "bearer" });
+  expect(response.status).toBe(400);
+  expect(repository.byId).not.toHaveBeenCalled();
+});
+
+for (const [method, path] of [["post", "/api/tickets"], ["get", "/api/tickets"], ["get", `/api/tickets/${ticketId}`]] as const) {
+  it.each(["missing", "invalid", "expired"])(`${method} ${path} rejects %s auth before business operations`, async (kind) => {
+    const call = request(app)[method](path);
+    if (kind !== "missing") call.auth(kind === "expired" ? expired : "invalid", { type: "bearer" });
+    const response = await call.send({ text: "help" });
+    expect(response.status).toBe(401);
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(repository.insert).not.toHaveBeenCalled();
+    expect(repository.list).not.toHaveBeenCalled();
+    expect(repository.byId).not.toHaveBeenCalled();
+  });
+  it(`${method} ${path} maps database failures without leaking details`, async () => {
+    const operation = method === "post" ? repository.insert : path.endsWith(ticketId) ? repository.byId : repository.list;
+    operation.mockRejectedValueOnce(new Error("private SQL connection details"));
+    const response = await request(app)[method](path).auth(bearer, { type: "bearer" }).send({ text: "help" });
+    expect(response.status).toBe(503);
+    expect(response.body).toEqual({ error: "Tickets unavailable. Try again." });
+    expect(response.headers["cache-control"]).toBe("no-store");
+  });
+}
+
+it("fails safely when database-resolved authentication is unavailable", async () => {
+  users.byId.mockRejectedValueOnce(new Error("private user lookup"));
+  const response = await request(app).get("/api/tickets").auth(bearer, { type: "bearer" });
+  expect(response.status).toBe(503);
+  expect(response.body).toEqual({ error: "Authentication unavailable. Try again." });
+  expect(repository.list).not.toHaveBeenCalled();
+});

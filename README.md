@@ -1,6 +1,6 @@
 # Support Ticket AI
 
-A local-development app with a persistent demo account: React + TypeScript + Vite, shadcn/ui-compatible components with Tailwind CSS, an Express API, and PostgreSQL. Login proves protected API access; ticket storage and AI analysis are not implemented yet.
+A local-development app with a persistent demo account: React + TypeScript + Vite, shadcn/ui-compatible components with Tailwind CSS, an Express API, and PostgreSQL. Login protects per-user ticket storage. AI analysis and the ticket UI are not implemented yet.
 
 ## Start with Docker Compose
 
@@ -69,6 +69,20 @@ Environment values must be exported into the process shell (or supplied by Compo
 
 **Local-only limitations:** no login rate limiting, account lockout, server-side logout/revocation or refresh tokens. A copied bearer token remains valid until expiry even after UI logout. Memory-only storage does not protect against active XSS. Before exposing this app, add HTTPS, abuse limits, secret management/rotation and deployment hardening; do not expose the development services to untrusted networks.
 
+## Ticket persistence
+
+All ticket routes require `Authorization: Bearer <token>` from login and return `Cache-Control: no-store`.
+
+- `POST /api/tickets` accepts JSON `{ "text": "support request" }`, trims its edges, and requires 1–20,000 JavaScript characters after trimming. Embedded NUL characters receive 400 because PostgreSQL text cannot represent them. The JSON body limit is 128 KiB (including escaping); malformed input receives 400 and oversized bodies receive 413.
+- Creation returns 201 `{ ticket: { id, text, createdAt } }`. UUID and UTC ISO timestamp are server-generated; supplied owner/ID/time fields are ignored. Tickets exist without an analysis.
+- `GET /api/tickets` returns `{ tickets: [...] }` for the authenticated owner, newest first with descending UUID as the stable tie-break. An empty history returns `[]`.
+- `GET /api/tickets/:id` returns the same ticket envelope. Malformed UUIDs receive 400; unknown and other-owner records receive the identical 404. Owner IDs never appear in responses.
+- Missing/invalid/expired auth receives 401. Database failures receive safe 503 errors without driver details.
+
+On every startup, including existing volumes and built `dist` execution, the API applies `001-users.sql` then `002-tickets.sql` before seeding/listening. Both migrations are idempotent; existing demo UUIDs and password hashes remain unchanged. Keep `apps/api/migrations/` beside `dist/`; no manual migration command is needed.
+
+**Demo limitations:** history has no pagination, ticket text is retained without a deletion/retention policy, and there is no analysis or ticket UI yet. For live persistence verification, create a ticket using a locally held bearer token, restart the API and database, then list/read it again. Use a second seeded account to confirm its list excludes the first account's tickets and detail returns 404. Never share tokens or ticket content in logs.
+
 ## Checks
 
 ```sh
@@ -80,7 +94,7 @@ docker compose config --quiet
 docker compose up --wait
 ```
 
-Tests cover password hashing, conflict-safe seeding, login validation, JWT negative cases, safe database errors, and UI login/logout/expiry/401/network/stale-response behavior, alongside the public health tests. Database access is mocked in unit tests; these do **not** prove real PostgreSQL persistence. The two `curl` commands above verify live database health and the Vite proxy.
+Tests cover ticket create/list/detail, validation boundaries, owner isolation, SQL parameters/order, startup migrations and safe failures, as well as password hashing, conflict-safe seeding, JWT negative cases, auth/UI regressions and public health. Database access is mocked in unit tests; these do **not** prove real PostgreSQL persistence. The two `curl` commands above verify live database health and the Vite proxy.
 
 For a live auth/persistence check: log in in the browser, use **Verify session**, then log out and confirm the login form returns. `curl -i http://localhost:5173/api/auth/me` without a token must return 401. Restart the API with `docker compose restart api`, then log in again with the original credentials. Using a temporary different `DEMO_PASSWORD` with the same email and recreating the API must leave only the original password valid; restore your original local environment value afterward. Do not print or share bearer tokens, hashes, or secrets when inspecting requests. Check rendering and **Check again** in a real browser as well.
 
@@ -91,16 +105,16 @@ To check live reload, edit text in `apps/web/src/App.tsx` and confirm the browse
 ```text
 Browser → Vite :5173 → /api proxy → Express :3001 → PostgreSQL :5432
 apps/web/  React UI, Tailwind theme, shadcn/ui configuration and Button
-apps/api/  Composition root, auth/users/health feature modules, migrations and tests
+apps/api/  Composition root, auth/users/health/tickets feature modules, migrations and tests
 ```
 
-- API features live in `apps/api/src/modules/{auth,users,health}`. Each HTTP feature has an `http/` controller; module-local `services/`, `repositories/`, and `utils/` folders hold the applicable implementations. Services use plain inputs/results and repository contracts without Express or HTTP status codes. Auth's reusable `login` and `identity` services own JWT verification and database-resolved identity, and depend only on the users lookup contract. Users has no HTTP routes yet; its seed service accepts injected hashing/ID dependencies. There is no empty auth repository because only users persist.
-- `server.ts` composes concrete repositories and auth HTTP handling before listening. `infrastructure/initialize-users.ts` validates seed configuration, loads the unchanged migration relative to the original source/build root, then calls the users seed service. SQL lives in repositories; password hashing lives in auth's `utils/password.ts`. Root `auth.ts` and `demo-user.ts` retain compatibility exports for existing callers/tests, not duplicate implementations.
+- API features live in `apps/api/src/modules/{auth,users,health,tickets}`. Each HTTP feature has an `http/` controller; module-local `services/`, `repositories/`, and `utils/` folders hold the applicable implementations. Services use plain inputs/results and repository contracts without Express or HTTP status codes. Auth's reusable `login` and `identity` services own JWT verification and database-resolved identity, and depend only on the users lookup contract. Users has no HTTP routes yet; its seed service accepts injected hashing/ID dependencies. There is no empty auth repository because only users persist.
+- `server.ts` composes concrete repositories and auth HTTP handling before listening. `infrastructure/initialize-users.ts` validates seed configuration, loads ordered users/tickets migrations relative to the original source/build root, then calls the users seed service. SQL lives in repositories; password hashing lives in auth's `utils/password.ts`. Root `auth.ts` and `demo-user.ts` retain compatibility exports for existing callers/tests, not duplicate implementations.
 - `GET /api/health` executes `SELECT 1`. It returns HTTP 200 with `database: "reachable"`, or HTTP 503 with `database: "unreachable"`. Connection/query timeouts bound failures; responses never expose driver errors or connection strings.
 - `apps/web/components.json`, the `@/` alias, theme tokens, `cn`, and the local Radix/CVA Button provide the shadcn/ui setup. The Button is a small source-owned adaptation, not a claim that a generator was run.
 - Root scripts fan out to npm workspaces. The root Vitest override keeps optional tooling peers on the same patched 4.1 release; npm 10 otherwise encounters a peer-resolution error. API build output is `apps/api/dist`; Vite output is `apps/web/dist`. `npm run start -w @support/api` runs the built API with `DATABASE_URL`, `DEMO_EMAIL`, `DEMO_PASSWORD`, and `JWT_SECRET` exported; keep `apps/api/migrations/` alongside `dist/`. Frontend static hosting and production routing are out of scope.
 - Compose uses a single dependency-install service and shared container-only root and workspace `node_modules` volumes, separate from host dependencies and Vite caches. After changing dependencies, stop the app services, rerun `docker compose run --no-deps dependencies`, then run `docker compose up --wait`.
 - Published Docker ports bind to localhost. The Node/Vite dev servers listen on all interfaces for container access; run host development only on a trusted machine/network.
-- This is development infrastructure, not a hardened production deployment. There are no ticket endpoints, signup/reset/refresh/roles, provider keys, AI calls, or cloud infrastructure in this task.
+- This is development infrastructure, not a hardened production deployment. There are no signup/reset/refresh/roles, provider keys, AI calls, ticket UI, or cloud infrastructure in this task.
 
-Review the auth negative tests and migration/seed first, then the browser expiry/stale-response guards and backend-only Compose variables. This is Task 2 of the six-part chain, built on the health scaffold; ticket persistence is the next unit.
+Review ticket owner scoping and SQL parameters first, then migration/seed startup and shared auth middleware. This is Task 3 of the six-part chain, built on authentication; AI analysis is the next unit.

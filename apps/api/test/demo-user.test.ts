@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
 import { createUsers, hashPassword, seedDemoUser, verifyPassword } from "../src/demo-user.js";
 
@@ -32,6 +33,10 @@ describe("demo persistence", () => {
     const original = stored!;
     await seedDemoUser({ query }, "demo@example.test", "changed-password");
     expect(query.mock.calls[0][0]).toContain("CREATE TABLE IF NOT EXISTS users");
+    const schemas = query.mock.calls.filter(([sql]) => sql.includes("CREATE TABLE"));
+    expect(schemas).toHaveLength(4);
+    expect(schemas[1][0]).toContain("CREATE TABLE IF NOT EXISTS tickets");
+    expect(schemas[3][0]).toContain("CREATE TABLE IF NOT EXISTS tickets");
     expect(stored === original).toBe(true);
     expect(await verifyPassword("synthetic-password", stored!.password_hash)).toBe(true);
     expect(await verifyPassword("changed-password", stored!.password_hash)).toBe(false);
@@ -43,6 +48,24 @@ describe("demo persistence", () => {
     const query = vi.fn();
     await expect(seedDemoUser({ query }, email, password)).rejects.toThrow("DEMO_EMAIL and DEMO_PASSWORD");
     expect(query).not.toHaveBeenCalled();
+  });
+
+  it("stops before seeding if the tickets migration fails", async () => {
+    const query = vi.fn().mockResolvedValueOnce({ rows: [] }).mockRejectedValueOnce(new Error("migration failed"));
+    await expect(seedDemoUser({ query }, "demo@example.test", "synthetic-password")).rejects.toThrow("migration failed");
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(query.mock.calls[0][0]).toContain("CREATE TABLE IF NOT EXISTS users");
+    expect(query.mock.calls[1][0]).toContain("CREATE TABLE IF NOT EXISTS tickets");
+  });
+
+  it("anchors migrations outside both source and built infrastructure directories", async () => {
+    const source = await readFile(new URL("../src/infrastructure/initialize-users.ts", import.meta.url), "utf8");
+    expect(source).toContain('new URL("../", import.meta.url)');
+    for (const location of ["src", "dist"]) {
+      const root = new URL("../", new URL(`../${location}/infrastructure/initialize-users.js`, import.meta.url));
+      const migration = new URL("../migrations/002-tickets.sql", root);
+      expect(await readFile(migration, "utf8")).toContain("CREATE TABLE IF NOT EXISTS tickets");
+    }
   });
 
   it("looks up users through parameterized queries", async () => {

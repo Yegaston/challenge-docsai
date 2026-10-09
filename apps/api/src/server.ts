@@ -5,6 +5,9 @@ import { createAuthService } from "./modules/auth/services/auth.service.js";
 import { createUsers } from "./modules/users/repositories/users.repository.js";
 import { createHealthRepository } from "./modules/health/repositories/health.repository.js";
 import { initializeUsers } from "./infrastructure/initialize-users.js";
+import { createTickets } from "./modules/tickets/repositories/tickets.repository.js";
+import { createTicketsService } from "./modules/tickets/services/tickets.service.js";
+import { createTicketsRouter } from "./modules/tickets/http/controller.js";
 
 if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL is required. See README.md for local setup.");
@@ -25,8 +28,11 @@ const pool = new Pool({
 pool.on("error", () => console.error("An idle database connection failed."));
 
 let auth;
+let tickets;
 try {
-  auth = createAuthRouter(await createAuthService({ users: createUsers(pool), secret: process.env.JWT_SECRET }));
+  const authService = await createAuthService({ users: createUsers(pool), secret: process.env.JWT_SECRET });
+  auth = createAuthRouter(authService);
+  tickets = createTicketsRouter(createTicketsService(createTickets(pool)), authService);
   await initializeUsers(pool, process.env.DEMO_EMAIL, process.env.DEMO_PASSWORD);
 } catch {
   // Startup errors may contain driver details or credentials: never print them.
@@ -35,7 +41,7 @@ try {
   process.exit(1);
 }
 
-const app = createApp(createHealthRepository(pool).check, auth);
+const app = createApp(createHealthRepository(pool).check, auth, tickets);
 const server = app.listen(port, "0.0.0.0", () => {
   console.log(`API listening on port ${port}`);
 });

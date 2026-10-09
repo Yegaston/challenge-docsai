@@ -11,7 +11,9 @@ export async function initializeUsers(database: Database, email: unknown, passwo
   // Anchor at the original root module location: src/../migrations and dist/../migrations.
   // Run on every startup, not only PostgreSQL's first-volume initialization.
   const root = new URL("../", import.meta.url);
-  const schema = await readFile(new URL("../migrations/001-users.sql", root), "utf8");
-  await database.query(schema);
+  for (const migration of ["001-users.sql", "002-tickets.sql"]) {
+    const schema = await readFile(new URL(`../migrations/${migration}`, root), "utf8");
+    await database.query(schema);
+  }
   await seedDemoUser(createUsers(database), email, password, { hash: hashPassword, id: randomUUID });
 }
