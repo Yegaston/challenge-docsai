@@ -3,7 +3,7 @@ import { jwtVerify, SignJWT, UnsecuredJWT } from "jose";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/app.js";
 import { createAuth } from "../src/auth.js";
-import * as passwords from "../src/demo-user.js";
+import * as passwords from "../src/modules/auth/password.js";
 
 const secret = "synthetic-test-key-".repeat(4);
 const key = new TextEncoder().encode(secret);
