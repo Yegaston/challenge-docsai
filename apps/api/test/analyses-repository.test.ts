@@ -41,7 +41,7 @@ it.each(["lock", "count", "insert"])("destroys client after %s DB error, includi
   if (stage === "insert") f.query.mockResolvedValueOnce({ rows: [{ count: "0" }] });
   f.query.mockRejectedValueOnce(new Error("private DB failure"));
   await expect(f.repository.start({ ...row })).rejects.toThrow();
-  expect(f.release).toHaveBeenCalledWith(true);
+  expect(f.release).toHaveBeenCalledExactlyOnceWith(true);
 });
 it("destroys client if unlock fails", async () => {
   const g = fixture(); const lease = await g.repository.start({ ...row });

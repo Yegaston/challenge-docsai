@@ -81,8 +81,10 @@ export function createAnalyses(pool: Pick<Pool, "connect" | "query">): Analyses 
           },
         };
       } catch (error) {
-        // A timed-out lock query might have acquired its server-side lock.
-        await release(!(error instanceof AnalysisError));
+        // Only a clean "limit" outcome returns the client to the pool; any
+        // other failure, including a possibly-locked timed-out lock query,
+        // destroys it so a broken or locked connection is never reused.
+        await release(!(error instanceof AnalysisError && error.kind === "limit"));
         throw error;
       }
     },
