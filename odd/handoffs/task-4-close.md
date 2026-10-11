@@ -1,6 +1,8 @@
 # Close Task 4: native review and closure commit for ticket analysis
 
-Short context handoff for a fresh session, **not a specification or authorization to implement**. Task 4 implementation is already done and functionally verified; this handoff covers only its closure path. The authoritative scope is [Task 4 in the feature brief](../tasks/support-ticket-ai.md). Reconcile that document, its Engram mirror, and the repository before any action.
+**EXECUTED AND CLOSED.** Native review `review-f5eb4fc4051092b8` approved after one bounded correction; exact acknowledgement burned review authority; delivery is ordinary repository policy. Commits: `008c26d` (bundled implementation), `aa0c810` (docs), `7912738` (review correction). Do not query, replay, or reset this lineage. Non-blocking advisories R2-001/R2-002/R3-002/R4-002 remain separate follow-ups. The record below is the executed history; see the feature brief for the authoritative closure record.
+
+Short context handoff for a fresh session, **not a specification or authorization to implement**. Task 4 implementation is already done and functionally verified; this handoff covered only its closure path. The authoritative scope is [Task 4 in the feature brief](../tasks/support-ticket-ai.md). Reconcile that document, its Engram mirror, and the repository before any action.
 
 ## Where to resume
 
