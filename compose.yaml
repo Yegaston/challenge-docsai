@@ -6,7 +6,7 @@ services:
     environment:
       POSTGRES_USER: support
       POSTGRES_DB: support
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Export POSTGRES_PASSWORD (see README.md)}
+      POSTGRES_PASSWORD: support-dev-password
     ports:
       - "127.0.0.1:${DB_PORT:-5432}:5432"
     volumes:
@@ -32,11 +32,13 @@ services:
     working_dir: /workspace
     command: npm run dev -w @support/api
     environment:
-      DATABASE_URL: postgresql://support:${POSTGRES_PASSWORD:?Export POSTGRES_PASSWORD (see README.md)}@db:5432/support
+      DATABASE_URL: postgresql://support:support-dev-password@db:5432/support
       PORT: "3001"
       DEMO_EMAIL: ${DEMO_EMAIL:?Export DEMO_EMAIL (see README.md)}
       DEMO_PASSWORD: ${DEMO_PASSWORD:?Export DEMO_PASSWORD (see README.md)}
       JWT_SECRET: ${JWT_SECRET:?Export JWT_SECRET (see README.md)}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-z-ai/glm-5.3-flash}
     ports:
       - "127.0.0.1:3001:3001"
     volumes:

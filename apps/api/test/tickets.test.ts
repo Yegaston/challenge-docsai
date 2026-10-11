@@ -54,7 +54,7 @@ it("creates trimmed tickets independently of analysis, ignoring supplied identit
   expect(rows[0]).toEqual({ id: ticketId, owner_id: owner, text: "Help\nplease", created_at: now });
   const detail = await request(app).get(`/api/tickets/${ticketId}`).auth(bearer, { type: "bearer" });
   expect(detail.status).toBe(200);
-  expect(detail.body).toEqual(response.body);
+  expect(detail.body).toEqual({ ticket: { ...response.body.ticket, analyses: [] } });
   expect(detail.headers["cache-control"]).toBe("no-store");
 });
 

@@ -8,6 +8,9 @@ import { initializeUsers } from "./infrastructure/initialize-users.js";
 import { createTickets } from "./modules/tickets/repositories/tickets.repository.js";
 import { createTicketsService } from "./modules/tickets/services/tickets.service.js";
 import { createTicketsRouter } from "./modules/tickets/http/controller.js";
+import { createAnalyses } from "./modules/analyses/repositories/analyses.repository.js";
+import { createAnalysesService } from "./modules/analyses/services/analyses.service.js";
+import { createAnalysisProvider } from "./modules/analyses/utils/provider.js";
 
 if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL is required. See README.md for local setup.");
@@ -32,7 +35,11 @@ let tickets;
 try {
   const authService = await createAuthService({ users: createUsers(pool), secret: process.env.JWT_SECRET });
   auth = createAuthRouter(authService);
-  tickets = createTicketsRouter(createTicketsService(createTickets(pool)), authService);
+  const ticketsService = createTicketsService(createTickets(pool));
+  const analyses = createAnalysesService(createAnalyses(pool), ticketsService, createAnalysisProvider({
+    apiKey: process.env.OPENROUTER_API_KEY, model: process.env.OPENROUTER_MODEL,
+  }));
+  tickets = createTicketsRouter(ticketsService, authService, analyses);
   await initializeUsers(pool, process.env.DEMO_EMAIL, process.env.DEMO_PASSWORD);
 } catch {
   // Startup errors may contain driver details or credentials: never print them.

@@ -11,9 +11,12 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@openrouter/ai-sdk-provider": "3.1.0",
+    "ai": "7.0.137",
     "express": "^5.2.1",
     "jose": "^6.2.12",
-    "pg": "^8.18.0"
+    "pg": "^8.18.0",
+    "zod": "4.1.8"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",

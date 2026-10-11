@@ -1,4 +1,6 @@
 import express, { type ErrorRequestHandler, type Response } from "express";
+import { createAnalysesRouter } from "../../analyses/http/controller.js";
+import type { AnalysesService } from "../../analyses/services/analyses.service.js";
 import { requireUser } from "../../auth/http/controller.js";
 import type { AuthService } from "../../auth/services/auth.service.js";
 import { TicketError, type TicketsService } from "../services/tickets.service.js";
@@ -13,13 +15,14 @@ function sendError(response: Response, error: unknown) {
   }
 }
 
-export function createTicketsRouter(service: TicketsService, auth: AuthService) {
+export function createTicketsRouter(service: TicketsService, auth: AuthService, analyses?: AnalysesService) {
   const router = express.Router();
   router.use((_request, response, next) => {
     response.set("Cache-Control", "no-store");
     next();
   });
   router.use(requireUser(auth));
+  if (analyses) router.use(createAnalysesRouter(analyses));
   // JSON escaping can expand 20,000 UTF-16 characters to roughly 120 KiB.
   router.post("/", express.json({ limit: "128kb", inflate: false }), async (request, response) => {
     try {
@@ -37,7 +40,10 @@ export function createTicketsRouter(service: TicketsService, auth: AuthService) 
   });
   router.get("/:id", async (request, response) => {
     try {
-      response.json({ ticket: await service.detail(response.locals.user.id, request.params.id as string) });
+      const owner = response.locals.user.id;
+      const id = request.params.id as string;
+      const ticket = await service.detail(owner, id);
+      response.json({ ticket: { ...ticket, analyses: analyses ? await analyses.history(owner, id) : [] } });
     } catch (error) {
       sendError(response, error);
     }
