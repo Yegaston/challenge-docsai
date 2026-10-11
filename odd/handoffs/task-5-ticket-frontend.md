@@ -19,12 +19,19 @@ Preparation handoff, **not yet authorization to implement**. Wait for the user's
 
 ## Task 5 in one paragraph
 
-Add the two ticket pages with shadcn/ui: a new-ticket page (paste text, submit, run analysis, navigate to results) and a ticket results/history page (structured summary, category, uncertainty, and prior versions; re-ask with a refinement instruction). Login remains the third view. Show empty, submitting/processing, error, and completed states with an actionable retry path; render failure codes understandably; never render model output as trusted HTML. Logout returns to login.
+Add the ticket pages with shadcn/ui on `react-router-dom` routes `/login`, `/tickets/new`, and `/tickets/:id`: a new-ticket page (paste text, submit, run analysis, navigate to results) and a ticket detail page (structured summary, category, uncertainty, and prior versions; re-ask with a refinement instruction), reached from a compact history list (truncated text, latest analysis status). Login remains its own route. Show empty, submitting/processing, error, and completed states with an actionable retry path; render failure codes understandably; never render model output as trusted HTML. Logout returns to login.
+
+## Agreed decisions (user, this session)
+
+1. **Routing:** add `react-router-dom` with `/login`, `/tickets/new`, and `/tickets/:id` routes. Shareable URLs and real navigation; this adds one dependency and some size.
+2. **Structure:** one coherent Task 5 unit containing both pages, requesting a size exception if the honest forecast exceeds the 400-line target (report the forecast and get the user's approval before implementing). No forced 5a/5b split.
+3. **History UX:** compact list (truncated text, latest analysis status) with full detail and analysis versions on the ticket detail route. Not inline-expanded rows.
+4. **Authorization:** implementation starts only on the user's explicit go.
 
 ## First actions in the new session (after user go)
 
 1. Read the feature brief (Task 5 section), `App.tsx`, `App.test.tsx`, the API controllers/services for exact response shapes, and the web workspace test setup before deciding edit surfaces.
-2. Plan the smallest coherent UI unit: it may exceed the ≤400-line target given shadcn components and state coverage; forecast honestly and seek a size exception or split at a working page boundary (e.g. new-ticket page / results page) rather than omitting tests. Report the size decision to the user before implementing.
+2. Plan the one coherent UI unit with `react-router-dom`: add the dependency, split views into route components while preserving the memory-only session handling in `App.tsx`. Both pages plus state coverage will likely exceed the ≤400-line target; forecast honestly and obtain the user's pre-approved size exception before implementing (agreed in principle this session: one unit, exception allowed). Do not omit tests or compress code.
 3. Implement test-first with Vitest/jsdom: focused interaction tests with mocked API for success, processing, each failure state, empty history, expiry mid-flow, and refinement. Observe RED, then GREEN, then full API/web regression, typecheck, build.
 4. **Real browser walkthrough with the browser tooling now available.** The user confirmed browser tooling exists this iteration. Script the full local-stack walkthrough: login → create ticket → analysis → refine → history → logout, including a failure/retry path. This walkthrough must also close the **still-pending Task 2 visual login/logout check** that no earlier iteration performed. Do not treat jsdom as visual evidence; if tooling fails, report the concrete blocker.
 5. Update the feature brief and Engram mirror with observed evidence and the work-unit commit (Conventional Commit, tests and docs with behavior) once checks pass and the user-authorized commit step arrives.

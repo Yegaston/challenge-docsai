@@ -125,10 +125,10 @@ ASSESS with explicit unavailable review returned unassessable because intended u
 
 ### Task 4 closure decisions (user, this session)
 
-- Execution order: smoke → native review → closure commit. The real OpenRouter smoke is **skipped in this iteration** (no key authorized), so closure runs review → commit. If the user later opts in to the smoke before review starts, the smoke runs first: live-model quality findings could change prompt code and invalidate an existing review.
+- Execution order: smoke → native review → closure commit. The real OpenRouter smoke is **skipped in this iteration** (no key authorized). The user then authorized one bundled untidy commit (`008c26d`) without granular review, and chose to run the native review immediately afterwards; a decision to run it is recorded — execution status lives in the closure handoff.
 - Native review starts from a fresh inspect. The expired-consent START failures created no lineage; those bindings are never reused.
-- The closure commit happens only after approval and acknowledgement, contains only Task 4 paths (the working tree mixes Task 4 with dev-password and Makefile/`scripts/` work; commit boundaries stay separate), and is a separate user decision.
-- Detail: [`odd/handoffs/task-4-close.md`](../handoffs/task-4-close.md). Preparation handoffs for Task 5 (`task-5-ticket-frontend.md`, folds the still-pending Task 2 visual check into its real browser walkthrough — browser tooling confirmed available this iteration) and Task 6 (`task-6-verify-handoff.md`, natural slot for the deferred smoke, plus VPS-migration caveats) wait for an explicit user go per task.
+- The closure commit happened early by explicit user decision: bundled untidy work-unit commit `008c26d` (Task 4 + dev-password + Makefile/scripts + ODD docs; 34 files, +1399/−39) without granular review. Post-commit checks: `npm ci`, typecheck, full 164 API + 19 web tests pass. Review can now target the committed range `974c490..008c26d`.
+- Detail: [`odd/handoffs/task-4-close.md`](../handoffs/task-4-close.md). Preparation handoffs for Task 5 (`task-5-ticket-frontend.md`: user-decided `react-router-dom` routing, one coherent unit with a pre-approved size-exception path, compact list → detail history UX; folds the still-pending Task 2 visual check into its real browser walkthrough — browser tooling confirmed available this iteration) and Task 6 (`task-6-verify-handoff.md`, natural slot for the deferred smoke, plus VPS-migration caveats) wait for an explicit user go per task.
 
 ## Task 5 — Complete the two-page ticket experience (PR 5; target ≤400 lines)
 
@@ -166,4 +166,4 @@ ASSESS with explicit unavailable review returned unassessable because intended u
 
 ## Next step
 
-Task 4 is implemented, functionally verified, and uncommitted on `feat/ticket-analysis` at HEAD `974c490`. Its closure path is set: fresh native review inspect → review lifecycle → user-authorized closure commit (smoke skipped this iteration), per `odd/handoffs/task-4-close.md`. After Task 4 closes, Task 5 (ticket frontend, real browser walkthrough including the pending Task 2 visual check) and Task 6 (integral verification and delivery) each start only on the user's explicit go via their handoffs. No push or PR is authorized.
+Task 4 is implemented, functionally verified, and committed as `008c26d` on `feat/ticket-analysis` (bundled untidy unit per user decision; typecheck and 164+19 tests green after `npm ci`). Its closure path is set: fresh native review inspect over the committed range `974c490..008c26d` → review lifecycle (smoke skipped this iteration), per `odd/handoffs/task-4-close.md`. After Task 4 closes, Task 5 (ticket frontend, real browser walkthrough including the pending Task 2 visual check) and Task 6 (integral verification and delivery) each start only on the user's explicit go via their handoffs. No push or PR is authorized.

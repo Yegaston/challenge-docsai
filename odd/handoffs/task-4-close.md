@@ -4,9 +4,8 @@ Short context handoff for a fresh session, **not a specification or authorizatio
 
 ## Where to resume
 
-- Branch at handoff: `feat/ticket-analysis`; HEAD: `974c490`. The full Task 4 implementation is **uncommitted**: new `apps/api/src/modules/analyses/`, `apps/api/migrations/003-analyses.sql`, five `apps/api/test/analyses*.test.ts` files, plus tracked edits (`controller.ts`, `server.ts`, `initialize-users.ts`, `package.json`, lockfile). These are the review candidate, not dirt to discard.
-- **The working tree mixes three uncommitted workstreams.** Task 4 (analyses), the dev-database-password work (`compose.yaml`, `config/development.example`, README edits), and Makefile/`scripts/`/`odd/tasks/make-run.md` work. Commit boundaries must separate them: the Task 4 closure commit contains only Task 4 paths. Never discard or bundle the others; their commits are separately authorized (see `odd/tasks/dev-database-password.md` and `odd/tasks/make-run.md`).
-- Preserve untracked `.codegraph/`, `CHALLENGE.pdf`, `odd/handoffs/`, `Makefile`, `scripts/`.
+- Branch at handoff: `feat/ticket-analysis`; HEAD: `008c26d`. The user chose to skip granular review and authorized one bundled untidy work-unit commit: Task 4 (analyses module, `003-analyses.sql`, five analysis test files), the dev-database-password work (`compose.yaml`, `config/development.example`, README), the Makefile/`scripts/` tooling, and all ODD docs landed together in `008c26d` (34 files, +1399/−39). The implementation is now committed, and the working tree is clean except untracked `.codegraph/` and `CHALLENGE.pdf` (keep them untracked).
+- Consequence for review: the frozen candidate can now be a committed range (`baseRef` + `committedOnly: true`, diff `974c490..008c26d`) instead of intended-untracked selection, which previously blocked assessment. Post-commit checks: `npm ci` refreshed, typecheck/build pass, full suite 164 API + 19 web tests green.
 - Engram project `challenge-docsai`, topic `odd/support-ticket-ai/tasks`. Reconcile before acting.
 
 ## Agreed closure decisions (user, this session)
@@ -28,10 +27,10 @@ Protected `POST /api/tickets/:id/analyses` with optional bounded refinement inst
 ## First actions in the new session
 
 1. Reconcile feature brief, Engram mirror, `git status`, HEAD, and the `gh stack` chain. Confirm the uncommitted Task 4 paths are intact and unchanged (input hashes were stable at HEAD `974c490`; re-verify nothing drifted).
-2. Call `gentle_review` with `{"operation":"inspect"}`. Resolve the intended-untracked selection the inspect offers (Task 4's source/test/migration paths; unrelated untracked work is preserved/excluded as inspect directs). The prior ready inspect target was `sha256:b78cbc71...`; a fresh inspect supersedes it if the tree changed.
+2. Call `gentle_review` with `{"operation":"inspect"}`. The candidate is the committed range `974c490..008c26d`; prefer `baseRef` + `committedOnly: true` over intended-untracked selection, which previously blocked assessment. The prior ready inspect target was `sha256:b78cbc71...`; a fresh inspect supersedes it now that the tree is committed.
 3. If START returns a consent envelope, relay it losslessly and let the human decide; submit the answer exactly once via `answer-consent`. If review consent is declined, report and stop; the closure commit remains a separate user decision.
 4. Drive capture exactly: one current collectBinding per `gentle_review_capture` (or the complete group via `gentle_review_capture_group`), forecast relayed and acknowledged before any reviewer run. A materialize review is long work; relay forecasts before resubmitting with `reviewerRunAcknowledged: true`.
-5. On `approved`: obtain the provider-issued `acknowledge-approved` continuation via bound STATUS and execute it unchanged; report the burn. Then propose the closure commit to the user: a single Conventional Commit (`feat(tickets): ...` or `feat(analyses): ...`) containing only Task 4 paths, with the feature-brief progress update either in the same unit or as the follow-up `docs(odd)` commit, matching the established pattern.
+5. On `approved`: obtain the provider-issued `acknowledge-approved` continuation via bound STATUS and execute it unchanged; report the burn. Any follow-up correction or bookkeeping commit is then a separate user decision; the base implementation is already committed as `008c26d`.
 
 ## Boundaries and caveats
 
