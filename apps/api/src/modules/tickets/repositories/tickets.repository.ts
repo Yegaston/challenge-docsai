@@ -2,7 +2,11 @@ import type { Pool, QueryResultRow } from "pg";
 
 export type TicketRecord = { id: string; text: string; created_at: Date };
 export type TicketRow = TicketRecord & { owner_id: string };
+export type ExpiredTicket = Pick<TicketRow, "id" | "owner_id"> & { cursor_created_at: string };
+export type RetentionCursor = Pick<ExpiredTicket, "id" | "cursor_created_at">;
 export type Tickets = {
+  selectExpired(cursor: RetentionCursor | undefined, limit: number): Promise<ExpiredTicket[]>;
+  expiredCount(): Promise<number>;
   insert(ticket: TicketRow): Promise<TicketRecord>;
   list(owner: string): Promise<TicketRecord[]>;
   byId(id: string, owner: string): Promise<TicketRecord | undefined>;
@@ -12,6 +16,16 @@ type Database = Pick<Pool, "query"> & Partial<Pick<Pool, "connect">>;
 
 export function createTickets(database: Database): Tickets {
   return {
+    async selectExpired(cursor, limit) {
+      return (await database.query(
+        "SELECT id, owner_id, created_at::text AS cursor_created_at FROM tickets WHERE created_at <= clock_timestamp() - interval '90 days' AND ($1::timestamptz IS NULL OR (created_at, id) > ($1::timestamptz, $2)) ORDER BY created_at, id LIMIT $3",
+        [cursor?.cursor_created_at ?? null, cursor?.id ?? null, limit],
+      )).rows;
+    },
+    async expiredCount() {
+      const result = await database.query("SELECT count(*) AS count FROM tickets WHERE created_at <= clock_timestamp() - interval '90 days'");
+      return Number(result.rows[0].count);
+    },
     async delete(id, owner) {
       if (!database.connect) throw new Error("Database connection unavailable");
       const client = await database.connect();

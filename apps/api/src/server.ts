@@ -11,6 +11,8 @@ import { createTicketsRouter } from "./modules/tickets/http/controller.js";
 import { createAnalyses } from "./modules/analyses/repositories/analyses.repository.js";
 import { createAnalysesService } from "./modules/analyses/services/analyses.service.js";
 import { createAnalysisProvider } from "./modules/analyses/utils/provider.js";
+import { createTicketRetentionService } from "./modules/tickets/services/ticket-retention.service.js";
+import { startTicketRetention } from "./infrastructure/ticket-retention.js";
 
 if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL is required. See README.md for local setup.");
@@ -32,6 +34,7 @@ pool.on("error", () => console.error("An idle database connection failed."));
 
 let auth;
 let tickets;
+let stopRetention: (() => Promise<void>) | undefined;
 try {
   const authService = await createAuthService({ users: createUsers(pool), secret: process.env.JWT_SECRET });
   auth = createAuthRouter(authService);
@@ -41,6 +44,7 @@ try {
   }));
   tickets = createTicketsRouter(ticketsService, authService, analyses);
   await initializeUsers(pool, process.env.DEMO_EMAIL, process.env.DEMO_PASSWORD);
+  stopRetention = startTicketRetention(createTicketRetentionService(createTickets(pool)));
 } catch {
   // Startup errors may contain driver details or credentials: never print them.
   console.error("Authentication initialization failed. Check database access and DEMO_EMAIL, DEMO_PASSWORD, JWT_SECRET configuration (README.md).");
@@ -55,10 +59,14 @@ const server = app.listen(port, "0.0.0.0", () => {
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.once(signal, () => {
+    // Best effort: stop between deletes; a stalled in-flight transaction may still hit this deadline.
     const deadline = setTimeout(() => process.exit(1), 5000);
     deadline.unref();
     server.close(() => {
-      void pool.end().then(() => {
+      void (async () => {
+        await stopRetention?.();
+        await pool.end();
+      })().then(() => {
         clearTimeout(deadline);
         process.exit(0);
       });

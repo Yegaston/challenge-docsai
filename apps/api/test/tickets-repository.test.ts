@@ -68,6 +68,28 @@ it("deletes under a transaction-scoped owner lock and destroys uncertain clients
   expect(query.mock.calls[3][0]).toBe("COMMIT");
 });
 
+it("selects bounded expired keys with a strict database-clock boundary and stable cursor, and counts backlog", async () => {
+  const query = vi.fn().mockResolvedValue({ rows: [{ count: "3" }] });
+  const tickets = createTickets({ query });
+  const exact = "2025-01-01 00:00:00.123456+00";
+  await tickets.selectExpired({ cursor_created_at: exact, id: "a" }, 25);
+  expect(query.mock.calls[0]).toEqual([
+    expect.stringContaining("created_at <= clock_timestamp() - interval '90 days'"), [exact, "a", 25],
+  ]);
+  expect(query.mock.calls[0][0]).toContain("created_at::text AS cursor_created_at");
+  expect(query.mock.calls[0][0]).toContain("ORDER BY created_at, id LIMIT $3");
+  expect(query.mock.calls[0][0]).toContain("(created_at, id) > ($1::timestamptz, $2)");
+  expect(query.mock.calls[0][0]).not.toMatch(/\btext\s*(,|FROM)\b/);
+  expect(await tickets.expiredCount()).toBe(3);
+  expect(query.mock.calls[1][0]).toContain("created_at <= clock_timestamp() - interval '90 days'");
+  await tickets.selectExpired(undefined, 25);
+  expect(query.mock.calls[2][1]).toEqual([null, null, 25]);
+  const sql = await readFile(new URL("../migrations/005-ticket-retention-index.sql", import.meta.url), "utf8");
+  const loader = await readFile(new URL("../src/infrastructure/initialize-users.ts", import.meta.url), "utf8");
+  expect(sql).toContain("CREATE INDEX IF NOT EXISTS tickets_retention_cursor_idx ON tickets (created_at, id)");
+  expect(loader).toContain('"005-ticket-retention-index.sql"');
+});
+
 it("generates UUID/time on the server and maps only public fields", async () => {
   const insert = vi.fn(async (row) => ({ ...row, unexpected: "private" }));
   const service = createTicketsService({ insert, list: vi.fn(), byId: vi.fn() });
