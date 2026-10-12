@@ -1,35 +1,13 @@
-# Start Task 6: integral verification and delivery handoff
+# Task 6 verification handoff
 
-Preparation handoff, **not yet authorization to implement**. Wait for the user's explicit go before starting Task 6. The authoritative scope is [Task 6 in the feature brief](../tasks/support-ticket-ai.md); reconcile it, the Engram mirror, and the repository before edits.
+Task 6's no-cost verification is complete on `feat/verify-handoff`; the documentation evidence work-unit commit is **pending parent action**. No push or PR was made. `gh stack` is unavailable and local metadata omits Task 5; reconcile that metadata before a future stacked PR. This local branch was created from Task 5 HEAD.
 
-## Where to resume
+## Independent clean-archive evidence
 
-- Branch at start: the Task 5 stack layer after its closure commit. Task 6 is the last PR in the agreed six-part stacked chain (`main → scaffold → demo-auth → ticket-persistence → ticket-analysis → ticket-frontend → <verify>`). Create its layer with `gh stack add` only after Task 5 closes; confirm the chain at that moment.
-- If the Task 4 OpenRouter smoke remains skipped when Task 6 starts, this task is its natural slot: the brief's optional live-model smoke run belongs here, and the user may opt in at that point (it needs a local key; results go to evidence, never to logs or docs).
-- Engram project `challenge-docsai`, topic `odd/support-ticket-ai/tasks`. Reconcile before acting.
+The verifier used a clean archive of HEAD `b96344c` without mutating the original checkout. `npm ci`, `npm test` (225 passing: 164 API + 61 web), typecheck, build, diff check, both shell fixture scripts and their syntax checks passed. Isolated Compose project `verify6bb96344` became healthy. Direct and proxied health returned 200; missing auth 401, invalid ticket 400, creation 201, and no-key analysis 502 `unconfigured` with a persisted failed attempt. A second account saw an empty list and got 404 for the other account's detail and analysis. Data survived API and database restarts.
 
-## Task 6 in one paragraph
+Temporary Playwright Chromium walked login → new ticket → failed analysis → detail → refinement (two failed versions) → history → logout and protected redirect. Six screenshots documented the login form/health, authenticated header/history, failed detail, two failed refinement versions, history, and logged-out login form. This resolves the deferred Task 2 login/logout visual check **in Chromium only**, not Safari. Screenshots remain under `/tmp/verify-6b-b96344-bZpJkewa/browser-evidence`; do not commit screenshots or disposable credentials.
 
-Prove the whole Part 1 flow from a clean checkout and present it: complete the README (architecture/flow, exact local startup and demo login setup, model switching via `OPENROUTER_MODEL`, AI prompt/version and provider boundaries, injection threat model and limitations, production cost/rate-limit strategy, trade-offs, known limitations, explicit Part 2/3 exclusions), then run the end-to-end verification: login → ticket → analysis → refinement → history on the real stack, started from a clean checkout via Docker Compose. Add only missing cross-layer checks, never a second implementation of earlier tests.
+All four isolated containers stopped; four volumes, including `verify6bb96344_postgres-data`, remain. The archive and temporary browser tooling remain for later cleanup; nothing was deleted. The user declined the paid OpenRouter smoke: **no real provider success or semantic, grounding, or language quality has been verified**. The no-key 502 path is not a successful model result. The full pre-fix Task 4 313-check PostgreSQL suite was not repeated, and live uncertain-ACK remains mock-only. No application defect was identified in this verification.
 
-## Outstanding items this task must account for (not necessarily fix)
-
-- **Deferred real-browser walkthrough from Task 5 (including Task 2 login/logout visual check):** user explicitly deferred it to Task 6. Safari WebDriver local probe returned HTTP 500 `session not created` until Safari Settings → Developer → Allow remote automation is enabled by the user. Do not equate jsdom or HTTP evidence with a visual pass. If Safari remains blocked, offer a human manual walkthrough and record its actual result or continued skip.
-- **Skipped live-model smoke from Task 4**: run it here if the user opts in, otherwise record it as skipped with the concrete reason (no key authorized this iteration).
-- **Task 2 advisory follow-ups** (`apps/web/src/App.tsx:63–64` readability/client-clock-skew): resolve or record explicitly as accepted limitations.
-- **Skipped/limited checks accumulated across tasks** (full pre-fix 313-check PostgreSQL suite not repeated after the crash fix; live uncertain-ACK scenario mock-only): listed plainly as skipped, not passed.
-- Known production limitations already documented (no pagination, no login rate limiting, no server-side token revocation, MVP retention of ticket text/analyses): keep them stated, not hidden.
-
-## First actions in the new session (after user go)
-
-1. Read the current README (20 KB, already partially updated by Makefile/dev-password work — reconcile rather than overwrite), `compose.yaml`, `config/development.example`, and the feature brief's Task 6 section.
-2. Plan the README completion as its own work unit; if README plus missing cross-layer checks exceeds the ≤400-line target, split into independently reviewable units and report the split before implementing.
-3. Run the clean-checkout walkthrough: fresh clone/copy → `npm ci` → Compose up → seeded demo login → full ticket flow → results/refine/history → logout. First resolve Safari's user-owned remote automation setting (or use a user-run manual browser walkthrough); the cloud Composio browser cannot reach localhost. A real provider call requires separate user opt-in and a local key; without it, test the real-stack failure path and separately verify success UI with controlled mocked responses, labeling each honestly. Record every failed, skipped, or unavailable check plainly.
-4. Negative paths at the integration level: expired/invalid token mid-flow, invalid ticket text, provider failure state surfaced in UI, non-owner isolation spot-check.
-5. Close the feature brief: final Task 4–6 evidence, honest skipped-check register, and the Part 2/3 deferred checklist left intact. Work-unit commit(s) as authorized.
-
-## Delivery and environment caveats
-
-- No push, PR, or merge authorized by this handoff; stacked-chain rules and per-PR review notes stay as agreed in the feature brief.
-- **VPS migration is expected before or during this phase.** Before releasing the current environment: copy the full checkout including `.git`, uncommitted changes, and new files; preserve the parallel Makefile/`scripts/`/`odd/tasks/` work; transfer secrets/config by a secure channel, never in commits; back up PostgreSQL separately (a repo copy does not copy the database); do not assume Engram transfers (rebuild mirrors from `odd/tasks/` if missing). On the new VPS: Node ≥22.12, npm ≥10, Docker/Compose, `npm ci`, repeat all checks. Task 6's clean-checkout walkthrough doubles as the post-migration verification if it happens there.
-- Part 2 (privacy/evaluations) and Part 3 (cloud infrastructure) remain out of this iteration; the README must separate implemented safeguards from production recommendations and record the exclusions explicitly.
+README startup/security instructions remain intact; its existing no-cost walkthrough and explicit live-smoke disclaimer match the observed outcome. Part 2 privacy/evaluation and Part 3 cloud deployment remain excluded. A later VPS move must transfer the full checkout (including `.git`) and secrets through a private channel, back up PostgreSQL separately, and repeat `npm ci`, tests, build and Compose checks; a repository copy does not carry database volumes or Engram memory. Parent owns the evidence commit identity, review/delivery lifecycle, and future metadata reconciliation.
