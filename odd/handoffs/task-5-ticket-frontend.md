@@ -1,10 +1,10 @@
 # Task 5: two-page ticket experience (frontend)
 
-**Reviewed; commit pending:** Frontend implementation and correction are complete. Native review `review-391789596729bafc` approved/acknowledged the corrected target `sha256:663af18fd62b594c797013b6356be5da69ebcc8518e1d3596bc97436e2dc8072` once; its authority is burned. Parent owns the work-unit commit (hash pending). Real-browser verification, including Task 2's visual login/logout check, is explicitly deferred to Task 6; do not claim a visual pass. See [Task 5 in the feature brief](../tasks/support-ticket-ai.md).
+**Complete:** Work-unit commit `338996c4da270641e2a7a366ded67fd0140be734` (+1,390/−301 lines in 19 files) includes frontend implementation, correction, tests, and documentation. Native review `review-391789596729bafc` approved/acknowledged the corrected target `sha256:663af18fd62b594c797013b6356be5da69ebcc8518e1d3596bc97436e2dc8072` once; its authority is burned. No push or PR was performed. Real-browser verification, including Task 2's visual login/logout check, is explicitly deferred to Task 6; do not claim a visual pass. See [Task 5 in the feature brief](../tasks/support-ticket-ai.md).
 
 ## Where to resume
 
-- Parent: make the pending Task 5 work-unit commit and record its hash in a subsequent small doc-only commit. Do not reopen the acknowledged review or claim a push/PR.
+- Task 5 is closed locally. Do not reopen the acknowledged review or claim a push/PR.
 - Task 6 owns the deferred real-browser walkthrough and Task 2 visual login/logout check. Safari WebDriver needs Safari Settings → Developer → Allow remote automation enabled by the user.
 
 ## Original implementation context (historical; not current instructions)
@@ -25,13 +25,13 @@ The task added the ticket pages with shadcn/ui on `react-router-dom` routes `/lo
 1. **Routing:** add `react-router-dom` with `/login`, `/tickets/new`, and `/tickets/:id` routes. Shareable URLs and real navigation; this adds one dependency and some size.
 2. **Structure:** one coherent Task 5 unit containing both pages. After the writer's first checkpoint forecast ~900 source + ~700 test lines, the user explicitly accepted the ~1,600-line size exception rather than splitting 5a/5b. Report actual changed lines and review workload; do not omit tests or compress code.
 3. **History UX:** compact list (truncated text, latest analysis status) with full detail and analysis versions on the ticket detail route. Not inline-expanded rows.
-4. **Authorization:** implementation and corrected native review are complete; commit remains pending. Real-browser walkthrough is deferred to Task 6 by explicit user decision. History's unbounded N+1 detail fetches are an accepted small-data demo limitation.
+4. **Authorization:** implementation, corrected native review, and local work-unit commit are complete. Real-browser walkthrough is deferred to Task 6 by explicit user decision. History's unbounded N+1 detail fetches are an accepted small-data demo limitation.
 
 ## Closure evidence and remaining obligation
 
 - R3-001 (CRITICAL indefinite uncertain-POST guard) was corrected with warned manual recovery: a successful GET must start at least 75 seconds after the same guard started, match the prior terminal/empty baseline, and find the guard unchanged at response. An explicit checkbox and discard then clear the local guard without POST; a separate submission can start the next paid attempt. Delayed-GET regression observed RED → GREEN.
 - Corrected diff against frozen pre-correction tree `17c1ab22`: 107 lines, within the accepted 180-diff-line correction plan. Writer and independent verifier each passed 61 web tests, 164 API tests, typecheck, build, and diff check. Native validator approved. R3-002 reliability WARNING (`apps/web/src/pages/NewTicketPage.tsx:49-55`) is informational follow-up only; no correction requested.
-- Task 6, **not Task 5 closure**, must perform the real-browser flow and outstanding Task 2 visual login/logout check or honestly record the blocker/skip. Safari requires user-enabled remote automation. Real OpenRouter smoke was skipped; no live quality claim. Parent will record the work-unit commit hash later.
+- Task 6, **not Task 5 closure**, must perform the real-browser flow and outstanding Task 2 visual login/logout check or honestly record the blocker/skip. Safari requires user-enabled remote automation. Real OpenRouter smoke was skipped; no live quality claim. Commit identity is recorded above; no live model-quality or real-browser visual verification is claimed.
 
 ## Boundaries
 
