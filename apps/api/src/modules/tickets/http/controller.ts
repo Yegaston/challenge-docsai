@@ -7,8 +7,8 @@ import { TicketError, type TicketsService } from "../services/tickets.service.js
 
 function sendError(response: Response, error: unknown) {
   if (error instanceof TicketError) {
-    response.status(error.kind === "missing" ? 404 : 400).json({
-      error: error.kind === "missing" ? "Ticket not found." : "Invalid ticket request.",
+    response.status(error.kind === "missing" ? 404 : error.kind === "conflict" ? 409 : 400).json({
+      error: error.kind === "missing" ? "Ticket not found." : error.kind === "conflict" ? "Ticket is being analyzed. Try again." : "Invalid ticket request.",
     });
   } else {
     response.status(503).json({ error: "Tickets unavailable. Try again." });
@@ -34,6 +34,14 @@ export function createTicketsRouter(service: TicketsService, auth: AuthService, 
   router.get("/", async (_request, response) => {
     try {
       response.json({ tickets: await service.list(response.locals.user.id) });
+    } catch (error) {
+      sendError(response, error);
+    }
+  });
+  router.delete("/:id", async (request, response) => {
+    try {
+      await service.delete(response.locals.user.id, request.params.id as string);
+      response.status(204).end();
     } catch (error) {
       sendError(response, error);
     }

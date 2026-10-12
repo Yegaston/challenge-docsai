@@ -28,6 +28,34 @@ it("parameterizes every value, scopes reads, and orders newest-first with a stab
   expect(await tickets.byId("missing", row.owner_id)).toBeUndefined();
 });
 
+it("deletes under a transaction-scoped owner lock and destroys uncertain clients", async () => {
+  const release = vi.fn();
+  const query = vi.fn().mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ locked: true }] })
+    .mockResolvedValueOnce({ rows: [{ id: "ticket" }] }).mockResolvedValueOnce({ rows: [] });
+  const client = { query, release, on: vi.fn(), removeListener: vi.fn() };
+  const tickets = createTickets({ query: vi.fn(), connect: vi.fn().mockResolvedValue(client) });
+  expect(await tickets.delete("ticket", "owner")).toBe("deleted");
+  expect(query.mock.calls.map(([sql]) => sql)).toEqual([
+    "BEGIN", expect.stringContaining("pg_try_advisory_xact_lock(hashtextextended($1, 0))"),
+    expect.stringContaining("DELETE FROM tickets WHERE id=$1 AND owner_id=$2 RETURNING id"), "COMMIT",
+  ]);
+  expect(query.mock.calls[2][1]).toEqual(["ticket", "owner"]);
+  expect(release).toHaveBeenCalledWith();
+  query.mockReset().mockResolvedValueOnce({ rows: [] }).mockRejectedValueOnce(new Error("timeout"));
+  await expect(tickets.delete("ticket", "owner")).rejects.toThrow();
+  expect(release).toHaveBeenCalledWith(true);
+  query.mockReset().mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ locked: false }] })
+    .mockResolvedValueOnce({ rows: [] });
+  expect(await tickets.delete("ticket", "owner")).toBe("conflict");
+  expect(query.mock.calls.map(([sql]) => sql)).toEqual([
+    "BEGIN", expect.stringContaining("pg_try_advisory_xact_lock"), "ROLLBACK",
+  ]);
+  query.mockReset().mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ locked: true }] })
+    .mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] });
+  expect(await tickets.delete("ticket", "owner")).toBe("missing");
+  expect(query.mock.calls[3][0]).toBe("COMMIT");
+});
+
 it("generates UUID/time on the server and maps only public fields", async () => {
   const insert = vi.fn(async (row) => ({ ...row, unexpected: "private" }));
   const service = createTicketsService({ insert, list: vi.fn(), byId: vi.fn() });
@@ -36,6 +64,15 @@ it("generates UUID/time on the server and maps only public fields", async () => 
   expect(ticket.createdAt).toBe(new Date(ticket.createdAt).toISOString());
   expect(Object.keys(ticket).sort()).toEqual(["createdAt", "id", "text"]);
   expect(insert.mock.calls[0][0].owner_id).toBe("owner");
+});
+
+it("migrates the existing composite foreign key to cascade on every startup", async () => {
+  const sql = await readFile(new URL("../migrations/004-ticket-deletion.sql", import.meta.url), "utf8");
+  const loader = await readFile(new URL("../src/infrastructure/initialize-users.ts", import.meta.url), "utf8");
+  expect(sql).toContain("DROP CONSTRAINT analyses_ticket_id_owner_id_fkey");
+  expect(sql).toContain("FOREIGN KEY (ticket_id, owner_id) REFERENCES tickets(id, owner_id) ON DELETE CASCADE");
+  expect(sql).toContain("IF NOT EXISTS");
+  expect(loader).toContain('"004-ticket-deletion.sql"');
 });
 
 it("defines an idempotent owner-linked schema with database bounds and matching index", async () => {

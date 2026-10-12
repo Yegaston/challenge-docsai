@@ -24,6 +24,12 @@ const repository = {
   insert: vi.fn(async (row: TicketRow) => { rows.push(row); return row; }),
   list: vi.fn(async (id: string) => rows.filter((row) => row.owner_id === id)),
   byId: vi.fn(async (id: string, user: string) => rows.find((row) => row.id === id && row.owner_id === user)),
+  delete: vi.fn(async (id: string, user: string) => {
+    const index = rows.findIndex((row) => row.id === id && row.owner_id === user);
+    if (index < 0) return "missing" as const;
+    rows.splice(index, 1);
+    return "deleted" as const;
+  }),
 };
 
 async function token(id: string, exp = now.getTime() / 1000 + 900) {
@@ -72,6 +78,36 @@ it("lists only the verified owner's records and hides foreign detail exactly lik
   expect(missing.status).toBe(404);
   expect(foreign.body).toEqual(missing.body);
   expect(foreign.headers["cache-control"]).toBe("no-store");
+});
+
+it("deletes only owned tickets and hides foreign and absent tickets", async () => {
+  rows.push({ id: ticketId, owner_id: owner, text: "private", created_at: now });
+  const foreign = await request(app).delete(`/api/tickets/${ticketId}`).auth(otherBearer, { type: "bearer" });
+  const absent = await request(app).delete(`/api/tickets/${unknownId}`).auth(otherBearer, { type: "bearer" });
+  expect(foreign.status).toBe(404);
+  expect(foreign.body).toEqual(absent.body);
+  expect(rows).toHaveLength(1);
+  const mine = await request(app).delete(`/api/tickets/${ticketId}`).auth(bearer, { type: "bearer" });
+  expect(mine.status).toBe(204);
+  expect(mine.body).toEqual({});
+  expect(mine.headers["cache-control"]).toBe("no-store");
+  expect(rows).toHaveLength(0);
+  expect(repository.delete).toHaveBeenCalledWith(ticketId, owner);
+});
+
+it("rejects malformed deletion and auth before persistence; maps lock and database failures safely", async () => {
+  expect((await request(app).delete("/api/tickets/bad").auth(bearer, { type: "bearer" })).status).toBe(400);
+  expect(repository.delete).not.toHaveBeenCalled();
+  expect((await request(app).delete(`/api/tickets/${ticketId}`)).status).toBe(401);
+  expect(repository.delete).not.toHaveBeenCalled();
+  repository.delete.mockResolvedValueOnce("conflict" as never);
+  const conflict = await request(app).delete(`/api/tickets/${ticketId}`).auth(bearer, { type: "bearer" });
+  expect(conflict.status).toBe(409);
+  expect(conflict.body).toEqual({ error: "Ticket is being analyzed. Try again." });
+  repository.delete.mockRejectedValueOnce(new Error("private database details"));
+  const failure = await request(app).delete(`/api/tickets/${ticketId}`).auth(bearer, { type: "bearer" });
+  expect(failure.status).toBe(503);
+  expect(failure.body).toEqual({ error: "Tickets unavailable. Try again." });
 });
 
 it("returns every repository-ordered record without pagination or private fields", async () => {
