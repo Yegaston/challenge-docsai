@@ -9,6 +9,19 @@ export function createReportsRouter(service: ReportsService, audit?: AuditServic
     response.status(kind === "invalid" ? 400 : kind === "missing" ? 404 : kind === "conflict" ? 409 : 503)
       .json({ error: kind === "invalid" ? "Invalid report request." : kind === "missing" ? "Ticket not found." : kind === "conflict" ? "Report already exists." : "Reports unavailable. Try again." });
   }
+  router.post("/:id/reports/:reportId/corrections", express.json({ limit: "8kb", inflate: false }), async (request, response) => {
+    try {
+      const ownerId = response.locals.user.id;
+      const ticketId = request.params.id as string, reportId = request.params.reportId as string;
+      const correction = await service.appendCorrection(ownerId, ticketId, reportId, request.body?.correction);
+      response.status(201).json({ correction });
+      void audit?.record({ kind: "wrong_answer_reviewed", ownerId, ticketId, analysisId: correction.analysisId });
+    } catch (error) { fail(response, error); }
+  });
+  router.get("/:id/reports/:reportId/corrections", async (request, response) => {
+    try { response.json({ corrections: await service.listCorrections(response.locals.user.id, request.params.id as string, request.params.reportId as string) }); }
+    catch (error) { fail(response, error); }
+  });
   router.post("/:id/analyses/:analysisId/reports", express.json({ limit: "8kb", inflate: false }), async (request, response) => {
     try {
       const ownerId = response.locals.user.id;

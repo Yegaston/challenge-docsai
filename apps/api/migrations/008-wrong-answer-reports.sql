@@ -9,10 +9,10 @@ CREATE TABLE IF NOT EXISTS wrong_answer_reports (
   UNIQUE (owner_id, analysis_id)
 );
 CREATE INDEX IF NOT EXISTS wrong_answer_reports_ticket_idx ON wrong_answer_reports (owner_id, ticket_id, created_at);
--- Upgrade the existing fixed vocabulary and its metadata shape once; never alter 006/007.
+-- Upgrade the fixed vocabulary and metadata shape unless this or a successor shape exists; never alter 006/007.
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'audit_report_shape' AND conrelid = 'audit_events'::regclass) THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname IN ('audit_report_shape', 'audit_review_shape') AND conrelid = 'audit_events'::regclass) THEN
     ALTER TABLE audit_events DROP CONSTRAINT audit_ticket_shape;
     ALTER TABLE audit_events ADD CONSTRAINT audit_ticket_shape CHECK (
       (kind = 'ticket_list' AND ticket_id IS NULL AND analysis_id IS NULL AND failure_code IS NULL) OR

@@ -25,6 +25,12 @@ it("records wrong-answer metadata without the explanation", async () => {
   expect(JSON.stringify(query.mock.calls)).not.toContain("PRIVATE_SENTINEL");
 });
 
+it("records reviewed metadata without correction content", async () => {
+  const query = vi.fn();
+  await createAuditRepository({ query } as never).insert({ kind: "wrong_answer_reviewed", ownerId: "owner", ticketId: "ticket", analysisId: "analysis" });
+  expect(query.mock.calls[0][1]).toEqual(["owner", "ticket", "wrong_answer_reviewed", "analysis", null]);
+  expect(JSON.stringify(query.mock.calls)).not.toContain("PRIVATE_SENTINEL");
+});
 it("upgrades 006 once without revalidating the full audit table at each restart", async () => {
   const sql = await readFile(new URL("../migrations/007-audit-retention.sql", import.meta.url), "utf8");
   expect(sql).toMatch(/IF NOT EXISTS \(SELECT 1 FROM pg_constraint/);

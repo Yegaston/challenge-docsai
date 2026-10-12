@@ -1,7 +1,7 @@
--- 006 remains immutable. Only upgrade the shape constraint once; avoid scanning old rows on restart.
+-- 006 remains immutable. Skip this upgrade when any successor audit shape is present.
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'audit_analysis_shape' AND conrelid = 'audit_events'::regclass) THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname IN ('audit_analysis_shape', 'audit_report_shape', 'audit_review_shape') AND conrelid = 'audit_events'::regclass) THEN
     ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS analysis_id uuid;
     ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS failure_code varchar(32);
     ALTER TABLE audit_events DROP CONSTRAINT audit_ticket_shape;
