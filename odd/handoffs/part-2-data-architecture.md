@@ -24,4 +24,4 @@
 
 ## Open boundaries
 
-No real provider, production data, Safari, legal/provider-terms validation or external log-retention enforcement was checked. Raw PII can reach OpenRouter without redaction or a notice/acknowledgement gate. Backups and provider copies are not erased by local deletion. Audit is content-free and best effort, not a complete compliance record. P2-4 release evaluation requires a named human decision and remains undecided. Do not convert this checkpoint into a completion or native-review claim.
+No real provider, production data, Safari, legal/provider-terms validation or external log-retention enforcement was checked. Raw PII can reach OpenRouter without redaction or a notice/acknowledgement gate. Backups and provider copies are not erased by local deletion. Audit is content-free and best effort, not a complete compliance record. P2-4 release evaluation requires a named human decision and remains undecided. The documentation checkpoint received native low review approval and acknowledgement; this approves those frozen docs only, not the incomplete live-browser/cascade checks or delivery.
