@@ -10,16 +10,16 @@ import { ProviderFailure } from "../src/modules/analyses/utils/provider.js";
 import type { AnalysisRecord } from "../src/modules/analyses/repositories/analyses.repository.js";
 
 const owner = "00000000-0000-4000-8000-000000000001", other = "00000000-0000-4000-8000-000000000002";
-const id = "00000000-0000-4000-8000-000000000003";
+const id = "00000000-0000-4000-8000-000000000003", supportId = "00000000-0000-4000-8000-000000000005";
 async function fixture() {
   const rows: AnalysisRecord[] = [];
   const auth = await createAuthService({ secret: "test-only-secret-".repeat(4), users: {
-    byEmail: vi.fn(), byId: vi.fn(async (user: string) => ({ id: user, email: "test@example.test", password_hash: "unused-test-hash" })),
+    byEmail: vi.fn(), byId: vi.fn(async (user: string) => ({ id: user, email: "test@example.test", role: user === supportId ? "support" as const : "customer" as const, password_hash: "unused-test-hash" })),
   } });
   const token = (user: string) => new SignJWT({}).setProtectedHeader({ alg: "HS256" })
     .setIssuer("support-ticket-api").setAudience("support-ticket-web").setSubject(user)
     .setIssuedAt().setExpirationTime("15m").sign(new TextEncoder().encode("test-only-secret-".repeat(4)));
-  const bearer = await token(owner), foreign = await token(other);
+  const bearer = await token(owner), foreign = await token(other), support = await token(supportId);
   const tickets = createTicketsService({ insert: vi.fn(), list: vi.fn(),
     byId: vi.fn(async (ticket, user) => ticket === id && user === owner ? { id, owner_id: owner, text: "original", created_at: new Date() } : undefined),
   });
@@ -29,8 +29,17 @@ async function fixture() {
   const start = vi.fn(async (row: AnalysisRecord) => { rows.push(row); return { finish, release }; });
   const history = vi.fn(async (user, ticket) => rows.filter((row) => row.owner_id === user && row.ticket_id === ticket));
   const service = createAnalysesService({ start, history }, tickets, { model: "mock", generate });
-  return { app: createApp(async () => {}, undefined, createTicketsRouter(tickets, auth, service)), bearer, foreign, generate, start, finish, history, release };
+  return { app: createApp(async () => {}, undefined, createTicketsRouter(tickets, auth, service)), bearer, foreign, support, generate, start, finish, history, release };
 }
+it("denies support legacy analysis before persistence or provider calls", async () => {
+  const f = await fixture();
+  const result = await request(f.app).post(`/api/tickets/${id}/analyses`).auth(f.support, { type: "bearer" }).send({});
+  expect(result.status).toBe(403);
+  expect(f.start).not.toHaveBeenCalled();
+  expect(f.generate).not.toHaveBeenCalled();
+  expect((await request(f.app).post(`/api/tickets/${id}/analyses`).auth(f.bearer, { type: "bearer" }).send({})).status).toBe(201);
+});
+
 it("owner can create/refine and reload history without private fields", async () => {
   const f = await fixture();
   const first = await request(f.app).post(`/api/tickets/${id}/analyses`).auth(f.bearer, { type: "bearer" }).send({});

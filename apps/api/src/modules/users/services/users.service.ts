@@ -15,7 +15,8 @@ export function validateSeed(emailValue: unknown, password: unknown) {
 }
 
 export function validateSupportSeed(emailValue: unknown, password: unknown) {
-  if (emailValue === undefined && password === undefined) return undefined;
+  if ((typeof emailValue !== "string" || !emailValue.trim()) &&
+      (typeof password !== "string" || !password.trim())) return undefined;
   const email = normalizeEmail(emailValue);
   if (!email || typeof password !== "string" || password.length < 12 || password.length > 256) {
     throw new Error("SUPPORT_EMAIL and SUPPORT_PASSWORD must both be configured (12–256 character password).");

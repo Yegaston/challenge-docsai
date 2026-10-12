@@ -4,7 +4,7 @@ set -eu
 cd "$(dirname "$0")/.."
 
 config() {
-  env -u DEMO_EMAIL -u DEMO_PASSWORD -u JWT_SECRET -u POSTGRES_PASSWORD "$@" docker compose \
+  env -u DEMO_EMAIL -u DEMO_PASSWORD -u DEMO_SUPPORT_EMAIL -u DEMO_SUPPORT_PASSWORD -u JWT_SECRET -u POSTGRES_PASSWORD "$@" docker compose \
     --env-file /dev/null -f compose.yaml config --format json
 }
 
@@ -42,4 +42,20 @@ for missing in DEMO_EMAIL DEMO_PASSWORD JWT_SECRET; do
     exit 1
   fi
 done
-printf 'PASS: fixed database credentials, required app values, localhost ports\n'
+
+for pair in absent blank configured; do
+  set --
+  if [ "$pair" = blank ]; then
+    set -- DEMO_SUPPORT_EMAIL= DEMO_SUPPORT_PASSWORD=
+  elif [ "$pair" = configured ]; then
+    set -- DEMO_SUPPORT_EMAIL=support@example.invalid DEMO_SUPPORT_PASSWORD=dummy-support-password
+  fi
+  output=$(config DEMO_EMAIL=test@example.invalid DEMO_PASSWORD=dummy-test-password JWT_SECRET=dummy-signing-secret-at-least-32-bytes "$@")
+  printf '%s' "$output" | python3 -c '
+import json, sys
+api = json.load(sys.stdin)["services"]["api"]["environment"]
+assert api["SUPPORT_EMAIL"] == ("support@example.invalid" if sys.argv[1] == "configured" else "")
+assert api["SUPPORT_PASSWORD"] == ("dummy-support-password" if sys.argv[1] == "configured" else "")
+' "$([ "$pair" = configured ] && printf configured || true)"
+done
+printf 'PASS: fixed database credentials, required app values, optional support mapping, localhost ports\n'

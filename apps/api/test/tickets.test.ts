@@ -19,6 +19,7 @@ let rows: TicketRow[];
 let app: ReturnType<typeof createApp>;
 let bearer: string;
 let otherBearer: string;
+let supportBearer: string;
 let expired: string;
 const users = { byEmail: vi.fn(), byId: vi.fn() };
 const auditInsert = vi.fn(async (_event: unknown) => {});
@@ -46,12 +47,30 @@ beforeAll(async () => {
   app = createApp(async () => {}, createAuthRouter(auth), createTicketsRouter(tickets, auth, undefined, createAuditService({ insert: auditInsert }, auditDiagnostic)));
   bearer = await token(owner);
   otherBearer = await token(other);
+  supportBearer = await token("00000000-0000-4000-8000-000000000005");
   expired = await token(owner, now.getTime() / 1000);
 });
 beforeEach(() => {
   vi.clearAllMocks();
   rows = [];
-  users.byId.mockImplementation(async (id) => [owner, other].includes(id) ? { id, email: "user@example.test" } : undefined);
+  users.byId.mockImplementation(async (id) => [owner, other].includes(id) ? { id, email: "user@example.test", role: "customer" } : id === "00000000-0000-4000-8000-000000000005" ? { id, email: "support@example.test", role: "support" } : undefined);
+});
+
+it("rejects support on legacy ticket routes before business operations while customer can use them", async () => {
+  rows.push({ id: ticketId, owner_id: owner, text: "private", created_at: now });
+  for (const [method, path] of [["get", "/api/tickets"], ["post", "/api/tickets"], ["get", `/api/tickets/${ticketId}`], ["delete", `/api/tickets/${ticketId}`]] as const) {
+    const denied = await request(app)[method](path).auth(supportBearer, { type: "bearer" }).send(method === "post" ? { text: "new" } : undefined);
+    expect(denied.status).toBe(403);
+    expect(denied.headers["cache-control"]).toBe("no-store");
+  }
+  expect(repository.list).not.toHaveBeenCalled();
+  expect(repository.insert).not.toHaveBeenCalled();
+  expect(repository.byId).not.toHaveBeenCalled();
+  expect(repository.delete).not.toHaveBeenCalled();
+  expect(auditInsert).not.toHaveBeenCalled();
+  expect((await request(app).get("/api/tickets").auth(bearer, { type: "bearer" })).status).toBe(200);
+  expect((await request(app).get(`/api/tickets/${ticketId}`).auth(bearer, { type: "bearer" })).status).toBe(200);
+  expect((await request(app).post("/api/tickets").auth(bearer, { type: "bearer" }).send({ text: "new" })).status).toBe(201);
 });
 
 it("audits only successful authenticated owner list, detail and deletion without content", async () => {

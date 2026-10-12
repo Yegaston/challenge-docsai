@@ -9,7 +9,7 @@ export function createConversationEscalation(database: Pick<Pool, "connect">) {
       await client.query("BEGIN");
       // Same ordering as invocation and resolution: advisory lock before row lock.
       await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [id]);
-      const selected = await client.query(`SELECT id, owner_id, status, ticket_id, clarification_deadline, (clarification_deadline <= clock_timestamp()) AS deadline_due FROM conversations
+      const selected = await client.query(`SELECT id, owner_id, status, ticket_id, created_at, clarification_deadline, (clarification_deadline <= clock_timestamp()) AS deadline_due FROM conversations
         WHERE id=$1 AND created_at > clock_timestamp() - interval '90 days' FOR UPDATE`, [id]);
       const row = selected.rows[0];
       if (!row || (owner && row.owner_id !== owner)) { await client.query("COMMIT"); return undefined; }
@@ -34,7 +34,7 @@ export function createConversationEscalation(database: Pick<Pool, "connect">) {
       try {
         await client.query("BEGIN");
         const result = await client.query(`SELECT id FROM conversations WHERE status='open' AND clarification_deadline <= clock_timestamp()
-          AND created_at > clock_timestamp() - interval '90 days' ORDER BY clarification_deadline, id LIMIT 100 FOR UPDATE SKIP LOCKED`, [new Date()]);
+          AND created_at > clock_timestamp() - interval '90 days' ORDER BY clarification_deadline, id LIMIT 100 FOR UPDATE SKIP LOCKED`);
         ids = result.rows.map(row => row.id);
         await client.query("COMMIT");
       } catch (error) { await client.query("ROLLBACK"); throw error; }

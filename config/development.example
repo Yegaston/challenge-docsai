@@ -5,6 +5,11 @@
 DEMO_EMAIL=
 # 12–256 characters; initial seed only, not a password-rotation mechanism.
 DEMO_PASSWORD=
+# Optional separate human-support login; set BOTH or leave BOTH blank.
+# Compose maps these to API-only SUPPORT_EMAIL and SUPPORT_PASSWORD.
+DEMO_SUPPORT_EMAIL=
+# 12–256 characters; initial seed only, not password rotation.
+DEMO_SUPPORT_PASSWORD=
 # At least 32 random bytes. Keep stable across restarts unless invalidating tokens.
 JWT_SECRET=
 DB_PORT=5432

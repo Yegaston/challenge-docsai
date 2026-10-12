@@ -62,6 +62,25 @@ it("checks due deadlines against database time in both selection and locked rech
   expect(queries.find(sql => sql.startsWith("SELECT id FROM conversations"))).toContain("clarification_deadline <= clock_timestamp()");
 });
 
+it("sweeps with no unused parameters and returns a serializable handoff row", async () => {
+  const created = new Date("2025-01-01T00:00:00.000Z");
+  const client = { query: vi.fn(async (sql: string, parameters?: unknown[]) => {
+    expect(parameters?.length ?? 0).toBe((sql.match(/\$\d+/g) ?? []).length);
+    if (sql.startsWith("SELECT id FROM conversations")) return { rows: [{ id }] };
+    if (sql.startsWith("SELECT id, owner_id")) {
+      expect(sql).toMatch(/\bcreated_at\b/);
+      return { rows: [{ id, owner_id: id, status: "open", ticket_id: null, clarification_deadline: created, deadline_due: true, created_at: created }] };
+    }
+    return { rows: [] };
+  }), release: vi.fn() };
+  const worker = createConversationEscalation({ connect: vi.fn(async () => client) } as any);
+  expect(await worker.sweep()).toBe(1);
+  const row = await worker.handoff(id, id);
+  expect(row).toMatchObject({ id, status: "escalated", created_at: created });
+  expect(row?.created_at.toISOString()).toBe("2025-01-01T00:00:00.000Z");
+  expect(client.query.mock.calls.filter(([sql]) => sql.startsWith("INSERT INTO tickets"))).toHaveLength(2);
+});
+
 it("uses locked, bounded due claims and an idempotent linked ticket", async () => {
   const queries: string[] = [];
   const client = { query: vi.fn(async (sql: string) => { queries.push(sql); return { rows: [] }; }), release: vi.fn() };

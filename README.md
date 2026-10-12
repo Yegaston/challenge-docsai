@@ -1,6 +1,6 @@
 # Support Ticket AI
 
-A local-development app with a persistent demo account: React + TypeScript + Vite, shadcn/ui-compatible components with Tailwind CSS, an Express API, and PostgreSQL. Login protects per-user ticket storage and synchronous AI analysis through the implemented ticket UI.
+A local-development app with a persistent demo account: React + TypeScript + Vite, shadcn/ui-compatible components with Tailwind CSS, an Express API, and PostgreSQL. Login protects a chat-first synthetic transfer-support flow and the existing ticket/analysis UI. Chat can clarify, perform customer-scoped read-only lookups, or hand off to a separate human support account.
 
 ## Start with Docker Compose
 
@@ -11,7 +11,7 @@ Requires **Make**, Docker Engine, and Docker Compose v2 with `up --wait` support
 if [ ! -e .env ]; then cp config/development.example .env; fi
 ```
 
-Privately edit `.env` and fill in the three required application values: `DEMO_EMAIL`, `DEMO_PASSWORD`, and `JWT_SECRET`. Use a 12–256 character demo password and a cryptographically random signing secret of at least 32 bytes from a password manager. Compose fixes the known development-only database password to `support-dev-password`; neither `.env` nor an exported `POSTGRES_PASSWORD` overrides it. This public credential is not suitable for production. The template's export instructions apply to host Node; once copied to `.env`, Docker Compose loads it automatically. Use Compose dotenv syntax, not executable shell commands; single-quote values containing literal `$` or `#` characters.
+Privately edit `.env` and fill in the three required application values: `DEMO_EMAIL`, `DEMO_PASSWORD`, and `JWT_SECRET`. For the optional shared human-support inbox, set BOTH `DEMO_SUPPORT_EMAIL` and `DEMO_SUPPORT_PASSWORD` to a distinct login (12–256 character password), or leave BOTH blank. Compose maps these to backend `SUPPORT_EMAIL` and `SUPPORT_PASSWORD`; a partial pair fails API startup. An absent/blank pair skips support seeding without removing an existing support account. Use a 12–256 character demo password and a cryptographically random signing secret of at least 32 bytes from a password manager. Compose fixes the known development-only database password to `support-dev-password`; neither `.env` nor an exported `POSTGRES_PASSWORD` overrides it. This public credential is not suitable for production. The template's export instructions apply to host Node; once copied to `.env`, Docker Compose loads it automatically. Use Compose dotenv syntax, not executable shell commands; single-quote values containing literal `$` or `#` characters.
 
 ```sh
 make run   # Start detached and wait for healthy services.
@@ -38,7 +38,11 @@ Open **http://localhost:5173** and log in with the email/password you supplied. 
 
 ### UI walkthrough (no paid provider call required)
 
-1. Log in, then select **New ticket**. Enter a synthetic support request and select **Create ticket**. Creation persists the ticket and starts a synchronous analysis request; the UI waits up to a minute. **Stop waiting** only stops the browser wait, not necessarily server processing.
+Chat is the primary customer screen. Log in as the customer and open a conversation with a synthetic transfer question. An incomplete reference can produce a clarification; supply an exact transfer ID or amount and date for a customer-scoped read-only lookup. The tool activity and messages persist for reload. Without a provider key, do not claim an AI answer succeeded: the no-key path is unavailable; the deterministic tests use a fake provider. To exercise human handoff without a paid call, request support explicitly and sign in separately with the configured support login to inspect the shared escalated inbox and reply. The customer sees the same thread and can continue messaging; AI no longer replies after escalation. An unanswered persisted agent clarification escalates after four elapsed hours; customer response or resolution cancels that deadline. Do not use real bank details.
+
+**Legacy ticket/analysis walkthrough:**
+
+1. Log in, then select **Tickets**, then **New ticket**. Enter a synthetic support request and select **Create ticket**. Creation persists the ticket and starts a synchronous analysis request; the UI waits up to a minute. **Stop waiting** only stops the browser wait, not necessarily server processing.
 2. Without `OPENROUTER_API_KEY`, the attempt is persisted as **failed** with code `unconfigured` (shown as a safe failure message in the UI): this is **not** a successful model result. Select **View ticket** to inspect the original text and failed attempt. Do not select **Try analysis again** merely to simulate success.
 3. On the detail page, inspect **Latest analysis**, optionally enter a refinement instruction and select **Refine analysis** (another persisted attempt, also `unconfigured` without a key). **Earlier versions** preserve prior attempts. Use **Back to tickets** or **Tickets** for the history list and its latest status; return to the detail page to inspect versions.
 4. Select **Log out**; the in-memory token is cleared and protected pages require login again. A real provider success requires a privately configured key and explicit cost approval; it is not part of this no-cost walkthrough.
@@ -84,6 +88,8 @@ For host Node, environment values must be exported into the process shell; the N
 | `DATABASE_URL` | Host API | Required PostgreSQL connection URL |
 | `DEMO_EMAIL` | API only | Required seed email; trimmed and lowercased |
 | `DEMO_PASSWORD` | API only | Required 12–256 characters; initial seed only |
+| `DEMO_SUPPORT_EMAIL`, `DEMO_SUPPORT_PASSWORD` | Compose interpolation | Optional pair mapped to API `SUPPORT_EMAIL`, `SUPPORT_PASSWORD`; both blank skips seed, partial pair fails startup |
+| `SUPPORT_EMAIL`, `SUPPORT_PASSWORD` | Host API | Optional separate support seed pair (password 12–256 characters); no role self-assignment |
 | `JWT_SECRET` | API only | Required ≥32 UTF-8 bytes; use a cryptographically random secret |
 | `OPENROUTER_API_KEY` | API only | Optional at startup; required for analysis; never expose to browser |
 | `OPENROUTER_MODEL` | API only | `z-ai/glm-5.3-flash`; change to another structured-output-capable OpenRouter model |
@@ -94,19 +100,19 @@ For host Node, environment values must be exported into the process shell; the N
 
 ## Demo authentication behavior
 
-- Before listening, the API runs `apps/api/migrations/001-users.sql` and a parameterized seed, including on existing database volumes. The unique email and `ON CONFLICT DO NOTHING` preserve the original UUID and password hash on restart. Startup fails closed with a safe diagnostic if configuration, schema or seed fails.
+- Before listening, the API runs ordered migrations and parameterized customer and optional support seeds, including on existing database volumes. The unique email and `ON CONFLICT DO NOTHING` preserve the original UUID and password hash on restart. Startup fails closed with a safe diagnostic if configuration, schema or seed fails.
 - Passwords use asynchronous Node scrypt with a random 16-byte salt, 64-byte key and versioned `scrypt-v1` format (N=16384, r=8, p=1); comparisons are timing-safe. Unknown accounts still run password verification. Login JSON is limited to 4 KiB, email to 254 characters and password to 256 characters.
-- `POST /api/auth/login` accepts JSON `{ "email": "<your email>", "password": "<your password>" }` and returns `{ token, expiresAt }` (expiry in Unix milliseconds). Incorrect credentials receive the same 401 error. `GET /api/auth/me` requires `Authorization: Bearer <token>` and returns `{ user: { id, email } }` from PostgreSQL, never the password hash.
+- `POST /api/auth/login` accepts JSON `{ "email": "<your email>", "password": "<your password>" }` and returns `{ token, expiresAt }` (expiry in Unix milliseconds). Incorrect credentials receive the same 401 error. `GET /api/auth/me` requires `Authorization: Bearer <token>` and returns `{ user: { id, email, role } }` from PostgreSQL, never the password hash.
 - `jose` signs and verifies HS256 JWTs with fixed issuer `support-ticket-api`, audience `support-ticket-web`, persistent user ID as subject, and a 15-minute lifetime. Missing/invalid/expired tokens receive 401; database failures receive safe 503 errors. Auth responses are `no-store`.
 - The browser keeps tokens only in React memory, never local/session storage or cookies. Reload, logout, expiry or a protected 401 requires login again. Requests are aborted/ignored on logout, expiry or unmount; a stale response cannot restore the session. Auth requests time out after 10 seconds; health remains public and independently retryable.
 
-**Credential changes:** changing `DEMO_PASSWORD` does **not** update an existing user's hash. Keep the original local value; password reset/rotation tooling is outside this demo. Changing `DEMO_EMAIL` seeds a different account and leaves the original record intact. Changing `JWT_SECRET` invalidates all existing tokens; keep it stable for normal restarts.
+**Credential changes:** Changing the support seed password also does not rotate an existing support account; the unique-email conflict-safe seed preserves its identity and hash across restarts. Use a distinct email from the customer seed. Changing `DEMO_PASSWORD` does **not** update an existing user's hash. Keep the original local value; password reset/rotation tooling is outside this demo. Changing `DEMO_EMAIL` seeds a different account and leaves the original record intact. Changing `JWT_SECRET` invalidates all existing tokens; keep it stable for normal restarts.
 
 **Local-only limitations:** no login rate limiting, account lockout, server-side logout/revocation or refresh tokens. A copied bearer token remains valid until expiry even after UI logout. Memory-only storage does not protect against active XSS. Before exposing this app, add HTTPS, abuse limits, secret management/rotation and deployment hardening; do not expose the development services to untrusted networks.
 
 ## Ticket persistence
 
-All ticket routes require `Authorization: Bearer <token>` from login and return `Cache-Control: no-store`.
+All legacy ticket and analysis routes require a customer-role `Authorization: Bearer <token>` from login (authenticated support receives 403) and return `Cache-Control: no-store`.
 
 - `POST /api/tickets` accepts JSON `{ "text": "support request" }`, trims its edges, and requires 1–20,000 JavaScript characters after trimming. Embedded NUL characters receive 400 because PostgreSQL text cannot represent them. The JSON body limit is 128 KiB (including escaping); malformed input receives 400 and oversized bodies receive 413.
 - Creation returns 201 `{ ticket: { id, text, createdAt } }`. UUID and UTC ISO timestamp are server-generated; supplied owner/ID/time fields are ignored. Tickets exist without an analysis.
@@ -114,9 +120,17 @@ All ticket routes require `Authorization: Bearer <token>` from login and return 
 - `GET /api/tickets/:id` returns `{ ticket: { id, text, createdAt, analyses: [...] } }`, with oldest-first analysis history (UUID tie-break), including running and failed attempts. Malformed UUIDs receive 400; unknown and other-owner records receive the identical 404. Owner IDs never appear in responses.
 - Missing/invalid/expired auth receives 401. Database failures receive safe 503 errors without driver details.
 
-On every startup, including existing volumes and built `dist` execution, the API applies `001-users.sql`, `002-tickets.sql`, then `003-analyses.sql`, `004-ticket-deletion.sql`, `005-ticket-retention-index.sql`, `006-audit-events.sql`, `007-audit-retention.sql`, `008-wrong-answer-reports.sql`, and `009-report-corrections.sql` before seeding/listening. These migrations are idempotent; existing demo UUIDs and password hashes remain unchanged. Keep `apps/api/migrations/` beside `dist/`; no manual migration command is needed.
+On every startup, including existing volumes and built `dist` execution, the API applies ordered migrations `001` through `016` (including conversations, transfer-agent, idempotency and handoff integrity) before seeding/listening. These migrations are idempotent; existing demo UUIDs and password hashes remain unchanged. Keep `apps/api/migrations/` beside `dist/`; no manual migration command is needed.
 
 **Demo limitations:** history has no pagination, and ticket access ends at 90 days after each ticket's creation (strict database-clock cutoff), and owners may still delete expired rows; a bounded physical purge runs on startup and every 15 minutes. Busy owners are retried on subsequent passes; outages can cause unbounded removal lag and content-free backlog warnings surface remaining rows. Backups and provider copies are not erased by this sweep. For live persistence verification, create a ticket using a locally held bearer token, restart the API and database, then list/read it again. Use a second seeded account to confirm its list excludes the first account's tickets and detail returns 404. Never share tokens or ticket content in logs.
+
+## Chat-first synthetic transfer support
+
+Server-assigned `customer` and `support` roles share the login endpoint; users cannot select their role. Customers create and read their own conversations, request human handoff, and resolve their own threads. Support can see only escalated conversations in the shared inbox and send human replies; support cannot impersonate customers, start customer conversations, run synthetic transfer tools or access customer-only ticket/analysis routes. Other customers cannot read a thread. The linked handoff ticket contains a generic pointer, not a transcript; both roles view the same persisted messages in the conversation.
+
+The transfer tool reads synthetic customer-scoped records only; it does not move money or access bank systems. The bounded agent asks for missing evidence rather than inventing status. An explicit support request or “I don't know” can hand off immediately. A persisted unanswered clarification starts a four-elapsed-hour deadline; the escalation worker uses database time and creates at most one linked ticket despite retries. Customer replies and resolution clear pending deadlines. After handoff, humans can continue messaging while the AI stays inactive.
+
+Chat send requests use UUID idempotency keys: retry the *same* key and payload after a transport failure, inspect the refreshed thread before choosing a new key, and do not assume an uncertain provider outcome was free. Reusing a key with different content is rejected; concurrent requests can return busy and uncertain acknowledgement can require refresh. This is not exactly-once provider billing. Conversation content has a strict 90-day access window and bounded physical purge; downtime can delay deletion. Existing ticket, analysis, and report audit events carry safe identifiers/metadata without ticket content and are best effort, not a complete compliance trail. Chat messages, handoffs, and tool events are persisted but do not currently emit audit events. Database audit cleanup is bounded at 180 days; external logs, backups and provider retention remain unverified. No paid provider smoke is authorized or implied by these instructions. Existing ticket and analysis routes remain available under **Tickets**.
 
 ## Ticket analysis (API and UI)
 
@@ -187,6 +201,6 @@ apps/api/  Composition root, auth/users/health/tickets/analyses feature modules,
 - Root scripts fan out to npm workspaces. The root Vitest override keeps optional tooling peers on the same patched 4.1 release; npm 10 otherwise encounters a peer-resolution error. API build output is `apps/api/dist`; Vite output is `apps/web/dist`. `npm run start -w @support/api` runs the built API with `DATABASE_URL`, `DEMO_EMAIL`, `DEMO_PASSWORD`, and `JWT_SECRET` exported; keep `apps/api/migrations/` alongside `dist/`. Frontend static hosting and production routing are out of scope.
 - Compose uses a single dependency-install service and shared container-only root and workspace `node_modules` volumes, separate from host dependencies and Vite caches. After changing dependencies, stop the app services, rerun `docker compose run --no-deps dependencies`, then run `docker compose up --wait`.
 - Published Docker ports bind to localhost. The Node/Vite dev servers listen on all interfaces for container access; run host development only on a trusted machine/network.
-- This is development infrastructure, not a hardened production deployment. There are no signup/reset/refresh/roles or cloud infrastructure in this task.
+- This is development infrastructure, not a hardened production deployment. There is no signup/reset/refresh or cloud infrastructure; customer/support roles are server-assigned.
 
 Review UI create → analysis → detail/refinement/history and uncertain-wait handling alongside analysis owner scoping, durable attempt start, lock lifecycle, SDK timeout/validation, migrations, and auth/ticket regressions. Independent Task 6 checks covered Chromium, PostgreSQL and Compose without a provider key; the paid-provider success and model quality remain unverified (see the [handoff](odd/handoffs/task-6-verify-handoff.md)).

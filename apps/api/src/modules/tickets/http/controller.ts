@@ -25,6 +25,13 @@ export function createTicketsRouter(service: TicketsService, auth: AuthService, 
     next();
   });
   router.use(requireUser(auth));
+  router.use((_request, response, next) => {
+    if (response.locals.user.role !== "customer") {
+      response.status(403).json({ error: "Customer access required." });
+      return;
+    }
+    next();
+  });
   if (analyses) router.use(createAnalysesRouter(analyses));
   if (reports) router.use(createReportsRouter(reports, audit));
   // JSON escaping can expand 20,000 UTF-16 characters to roughly 120 KiB.
