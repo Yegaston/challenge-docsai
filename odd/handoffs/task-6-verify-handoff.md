@@ -1,6 +1,6 @@
 # Task 6 verification handoff
 
-Task 6's no-cost verification is complete on `feat/verify-handoff`; the documentation evidence work-unit commit is **pending parent action**. No push or PR was made. `gh stack` is unavailable and local metadata omits Task 5; reconcile that metadata before a future stacked PR. This local branch was created from Task 5 HEAD.
+Task 6's no-cost verification is complete on `feat/verify-handoff` in evidence work-unit commit `39152264747f652ffe557afb25fdce59d658355c` (passive native review approved/acknowledged). No push or PR was made. `gh stack` is unavailable and local metadata omits Task 5; reconcile that metadata before a future stacked PR. This local branch was created from Task 5 HEAD.
 
 ## Independent clean-archive evidence
 
@@ -10,4 +10,4 @@ Temporary Playwright Chromium walked login → new ticket → failed analysis �
 
 All four isolated containers stopped; four volumes, including `verify6bb96344_postgres-data`, remain. The archive and temporary browser tooling remain for later cleanup; nothing was deleted. The user declined the paid OpenRouter smoke: **no real provider success or semantic, grounding, or language quality has been verified**. The no-key 502 path is not a successful model result. The full pre-fix Task 4 313-check PostgreSQL suite was not repeated, and live uncertain-ACK remains mock-only. No application defect was identified in this verification.
 
-README startup/security instructions remain intact; its existing no-cost walkthrough and explicit live-smoke disclaimer match the observed outcome. Part 2 privacy/evaluation and Part 3 cloud deployment remain excluded. A later VPS move must transfer the full checkout (including `.git`) and secrets through a private channel, back up PostgreSQL separately, and repeat `npm ci`, tests, build and Compose checks; a repository copy does not carry database volumes or Engram memory. Parent owns the evidence commit identity, review/delivery lifecycle, and future metadata reconciliation.
+README startup/security instructions remain intact; its existing no-cost walkthrough and explicit live-smoke disclaimer match the observed outcome. Part 2 privacy/evaluation and Part 3 cloud deployment remain excluded. A later VPS move must transfer the full checkout (including `.git`) and secrets through a private channel, back up PostgreSQL separately, and repeat `npm ci`, tests, build and Compose checks; a repository copy does not carry database volumes or Engram memory. The local evidence commit does not authorize push, PR or merge; future metadata reconciliation remains necessary.
