@@ -119,9 +119,9 @@ it("replays a completed send without invoking the provider twice and rejects cha
   };
   const run = vi.fn(async () => ({ text: "verified", activity: [], needsClarification: true, options: [{ kind: "handoff", label: "Support" }] }));
   const service = createConversationsService(repository as any, { run } as any);
-  expect(await service.reply(customer, row.id, "where?", other.id)).toEqual({ text: "verified", needsClarification: true, options: [{ kind: "handoff", label: "Support" }] });
+  expect(await service.reply(customer, row.id, "where?", other.id)).toMatchObject({ id: row.id, status: "open", text: "verified", needsClarification: true, options: [{ kind: "handoff", label: "Support" }] });
   state = "duplicate";
-  expect(await service.reply(customer, row.id, "where?", other.id)).toEqual({ text: "verified", needsClarification: true, options: [{ kind: "handoff", label: "Support" }] });
+  expect(await service.reply(customer, row.id, "where?", other.id)).toMatchObject({ id: row.id, status: "open", text: "verified", needsClarification: true, options: [{ kind: "handoff", label: "Support" }] });
   expect(run).toHaveBeenCalledTimes(1);
   await expect(service.reply(customer, row.id, "different", other.id)).rejects.toThrow("invalid");
 });
@@ -181,13 +181,29 @@ it("routes only exact trimmed handoff phrases without provider invocation", asyn
 
 it("retries exact handoff after escalation without a human message and reports resolved honestly", async () => {
   const row = { id: customer.id, owner_id: customer.id, status: "escalated" as "escalated" | "resolved", created_at: new Date(), ticket_id: support.id };
-  const repository = { byId: vi.fn(async () => row), humanMessage: vi.fn(), completed: vi.fn(async () => ({ state: "done", response: { text: "Connected to human support." } })) };
+  const repository = { byId: vi.fn(async () => row), admit: vi.fn(async () => "duplicate"), humanMessage: vi.fn(), completed: vi.fn(async () => ({ state: "done", response: { text: "Connected to human support." } })) };
   const escalation = { handoff: vi.fn(async () => row) };
   const service = createConversationsService(repository as any, { run: vi.fn() } as any, escalation);
-  expect(await service.reply(customer, row.id, "I don't know", other.id)).toEqual({ text: "Connected to human support.", ticketId: support.id });
+  expect(await service.reply(customer, row.id, "I don't know", other.id)).toMatchObject({ id: row.id, status: "escalated", clarificationDeadline: null, text: "Connected to human support.", ticketId: support.id });
   expect(repository.humanMessage).not.toHaveBeenCalled();
   row.status = "resolved";
   await expect(service.reply(customer, row.id, "contact support", other.id)).rejects.toThrow("forbidden");
+  expect(repository.humanMessage).not.toHaveBeenCalled();
+});
+
+it("does not convert unsafe escalated handoff keys into success", async () => {
+  const row = { id: customer.id, owner_id: customer.id, status: "escalated" as const, created_at: new Date(), ticket_id: support.id };
+  let claim = "duplicate";
+  let state = "pending";
+  const repository = { byId: vi.fn(async () => row), admit: vi.fn(async () => claim), completed: vi.fn(async () => ({ state, response: { text: "Connected to human support." } })), humanMessage: vi.fn() };
+  const service = createConversationsService(repository as any, { run: vi.fn() } as any);
+  await expect(service.reply(customer, row.id, "contact support", other.id)).rejects.toThrow("busy");
+  state = "outcome_unknown";
+  await expect(service.reply(customer, row.id, "contact support", other.id)).rejects.toThrow("outcome_unknown");
+  claim = "conflict";
+  await expect(service.reply(customer, row.id, "contact support", other.id)).rejects.toThrow("invalid");
+  claim = "forbidden";
+  await expect(service.reply(customer, row.id, "contact support", support.id)).rejects.toThrow("forbidden");
   expect(repository.humanMessage).not.toHaveBeenCalled();
 });
 

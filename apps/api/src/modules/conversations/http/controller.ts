@@ -2,11 +2,14 @@ import express from "express";
 import { requireUser } from "../../auth/http/controller.js";
 import type { AuthService } from "../../auth/services/auth.service.js";
 import { ConversationError, type ConversationsService } from "../services/conversations.service.js";
+import { streamConversation } from "./stream.js";
 
 export function createConversationsRouter(service: ConversationsService, auth: AuthService) {
   const router = express.Router();
   router.use((_request, response, next) => { response.set("Cache-Control", "no-store"); next(); });
   router.use(requireUser(auth));
+  router.post("/stream", express.json({ limit: "24kb", inflate: false }), streamConversation(service, "create"));
+  router.post("/:id/messages/stream", express.json({ limit: "4kb", inflate: false }), streamConversation(service, "reply"));
   router.post("/", express.json({ limit: "24kb", inflate: false }), async (request, response) => {
     try { response.status(201).json(await service.create(response.locals.user, request.body)); }
     catch (error) { sendError(response, error); }

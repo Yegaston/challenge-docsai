@@ -15,7 +15,7 @@ export type Conversations = {
   completed?(owner: string, id: string, key: string): Promise<{ state: string; response: { text: string } | null }>;
   withInvocation?<T>(owner: string, id: string, run: () => Promise<T>): Promise<T>;
   finish?(owner: string, id: string, key: string, response?: { text: string }): Promise<void>;
-  complete?(owner: string, id: string, key: string, activity: string[], response: { text: string; needsClarification?: boolean; options?: ClarificationOption[] }): Promise<void>;
+  complete?(owner: string, id: string, key: string, activity: string[], response: { text: string; needsClarification?: boolean; options?: ClarificationOption[] }): Promise<{ id: string; status: Conversation["status"]; clarificationDeadline: string | null }>;
   humanMessage?(id: string, owner: string, role: Role, key: string, text: string): Promise<"new" | "duplicate" | "conflict" | false>;
   resolve?(id: string, owner: string): Promise<boolean>;
   throttle?(owner: string): Promise<boolean>;
@@ -89,9 +89,11 @@ export function createConversations(database: Pick<Pool, "query" | "connect">): 
         for (const [role, text] of [...activity.map((event): [string, string] => ["system", event]), ["agent", response.text] as [string, string]]) {
           await client.query("INSERT INTO conversation_messages (id, conversation_id, sender_role, text, created_at, options) VALUES ($1,$2,$3,$4,clock_timestamp(),$5)", [crypto.randomUUID(), id, role, text, role === "agent" ? JSON.stringify(response.options ?? null) : null]);
         }
-        await client.query("UPDATE conversations SET clarification_deadline=CASE WHEN $3 THEN clock_timestamp() + interval '4 hours' ELSE NULL END WHERE id=$1 AND owner_id=$2", [id, owner, response.needsClarification === true]);
-        await client.query("UPDATE chat_send_claims SET state='done', response=$4 WHERE owner_id=$1 AND conversation_id=$2 AND request_key=$3", [owner, id, key, JSON.stringify(response)]);
+        const updated = await client.query("UPDATE conversations SET clarification_deadline=CASE WHEN $3 THEN clock_timestamp() + interval '4 hours' ELSE NULL END WHERE id=$1 AND owner_id=$2 RETURNING status, clarification_deadline", [id, owner, response.needsClarification === true]);
+        const snapshot = { ...response, id, status: (updated.rows[0]?.status ?? conversation.rows[0].status) as Conversation["status"], clarificationDeadline: (updated.rows[0]?.clarification_deadline as Date | null)?.toISOString() ?? null };
+        await client.query("UPDATE chat_send_claims SET state='done', response=$4 WHERE owner_id=$1 AND conversation_id=$2 AND request_key=$3", [owner, id, key, JSON.stringify(snapshot)]);
         await client.query("COMMIT");
+        return snapshot;
       } catch (error) { await client.query("ROLLBACK"); throw error; }
       finally { client.release(); }
     },

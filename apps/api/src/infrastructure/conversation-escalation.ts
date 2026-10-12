@@ -17,8 +17,10 @@ export function createConversationEscalation(database: Pick<Pool, "connect">) {
         const ticketId = row.ticket_id ?? randomUUID();
         await client.query("INSERT INTO tickets (id, owner_id, text, created_at) VALUES ($1,$2,$3,$4) ON CONFLICT (id) DO NOTHING", [ticketId, row.owner_id, "Customer requested human transfer support. See linked conversation for context.", new Date()]);
         await client.query("UPDATE conversations SET status='escalated', clarification_deadline=NULL, ticket_id=$2 WHERE id=$1", [id, ticketId]);
+        await client.query("INSERT INTO conversation_messages (id, conversation_id, sender_role, text, created_at) VALUES ($1,$2,'system',$3,clock_timestamp())", [randomUUID(), id, owner ? "Connected to human support." : "Conversation handed to human support."]);
         row.ticket_id = ticketId;
         row.status = "escalated";
+        row.clarification_deadline = null;
       }
       await client.query("COMMIT");
       return row;

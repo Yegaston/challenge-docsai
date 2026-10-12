@@ -3,7 +3,7 @@ import type { Conversations, Conversation, Role } from "../repositories/conversa
 import type { TransferAgent } from "./transfer-agent.js";
 
 export class ConversationError extends Error {
-  constructor(public readonly kind: "invalid" | "missing" | "forbidden" | "busy" | "unavailable" | "outcome_unknown") { super(kind); }
+  constructor(public readonly kind: "invalid" | "missing" | "forbidden" | "busy" | "unavailable" | "outcome_unknown" | "human_mode") { super(kind); }
 }
 
 type Identity = { id: string; role: Role };
@@ -11,18 +11,24 @@ const publicConversation = (row: Conversation) => ({ id: row.id, status: row.sta
 const validId = (id: string) => /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(id);
 
 export function createConversationsService(repository: Conversations, agent?: TransferAgent, escalation?: { handoff(id: string, owner: string): Promise<Conversation | undefined> }) {
-  async function answer(user: Identity, id: string, text: string, key: string, opening?: Conversation) {
+  async function answer(user: Identity, id: string, text: string, key: string, opening?: Conversation, agentOnly = false) {
     if (!validId(id) || typeof text !== "string" || !text.trim() || text.length > 2000 || text.includes("\u0000")) throw new ConversationError("invalid");
     if (!validId(key)) throw new ConversationError("invalid");
     const current = await repository.byId(id, user.id, user.role);
     const handoffPhrase = user.role === "customer" && /^(?:i don't know|contact support)$/i.test(text.trim());
     if (handoffPhrase && current?.status === "escalated") {
-      const prior = await repository.completed?.(user.id, id, key);
-      if (prior?.state === "done" && prior.response?.text !== "Connected to human support.") throw new ConversationError("invalid");
-      return { text: "Connected to human support.", ticketId: current.ticket_id ?? null };
+      // Match the original claim's payload before replaying a persisted handoff.
+      const claim = await repository.admit!(user.id, id, key, text.trim());
+      if (claim === "conflict") throw new ConversationError("invalid");
+      if (claim !== "duplicate") throw new ConversationError(claim === "busy" ? "busy" : claim === "missing" ? "missing" : "forbidden");
+      const prior = await repository.completed!(user.id, id, key);
+      if (prior?.state !== "done") throw new ConversationError(prior?.state === "outcome_unknown" ? "outcome_unknown" : prior?.state === "failed" ? "unavailable" : "busy");
+      if (prior.response?.text !== "Connected to human support.") throw new ConversationError("invalid");
+      return { ...publicConversation(current), text: prior.response.text };
     }
     if (current?.status === "resolved") throw new ConversationError("forbidden");
     if (current?.status === "escalated") {
+      if (agentOnly) throw new ConversationError("human_mode");
       const result = await repository.humanMessage?.(id, user.id, user.role, key, text.trim());
       if (result === "conflict") throw new ConversationError("invalid");
       if (!result) throw new ConversationError("missing");
@@ -32,10 +38,14 @@ export function createConversationsService(repository: Conversations, agent?: Tr
     if (!agent) throw new ConversationError("unavailable");
     const claim = await repository.admit!(user.id, id, key, text.trim(), opening);
     if (claim === "conflict") throw new ConversationError("invalid");
-    if (claim === "busy" || claim === "missing" || claim === "forbidden") throw new ConversationError(claim);
+    if (claim === "busy" || claim === "missing" || claim === "forbidden") throw new ConversationError(agentOnly && claim === "forbidden" ? "human_mode" : claim);
     if (claim === "duplicate") {
       const prior = await repository.completed!(user.id, id, key);
-      if (prior.state === "done" && prior.response) return prior.response;
+      if (prior.state === "done" && prior.response) {
+        const row = await repository.byId(id, user.id, "customer");
+        if (!row) throw new ConversationError("missing");
+        return { ...publicConversation(row), ...prior.response };
+      }
       throw new ConversationError(prior.state === "outcome_unknown" ? "outcome_unknown" : prior.state === "failed" ? "unavailable" : "busy");
     }
     try {
@@ -44,15 +54,17 @@ export function createConversationsService(repository: Conversations, agent?: Tr
         const row = await escalation.handoff(id, user.id);
         if (!row) throw new ConversationError("missing");
         await repository.finish!(user.id, id, key, { text: "Connected to human support." });
-        return { text: "Connected to human support.", ticketId: row.ticket_id ?? null };
+        return { ...publicConversation(row), text: "Connected to human support." };
       }
       const history = (await repository.messages(id)).map(m => `${m.sender_role}: ${m.text}`).slice(-8);
       if (!repository.withInvocation) throw new ConversationError("unavailable");
       return await repository.withInvocation(user.id, id, async () => {
         const result = await agent.run(user.id, text.trim(), history);
         const response = { text: result.text, needsClarification: result.needsClarification, options: result.options };
-        await repository.complete!(user.id, id, key, result.activity, response);
-        return response;
+        const saved = (await repository.complete!(user.id, id, key, result.activity, response)) ?? response;
+        const row = await repository.byId(id, user.id, "customer");
+        if (!row) throw new ConversationError("missing");
+        return { ...publicConversation(row), ...saved };
       });
     } catch (error) {
       throw error instanceof ConversationError ? error : new ConversationError("outcome_unknown");
@@ -73,6 +85,11 @@ export function createConversationsService(repository: Conversations, agent?: Tr
       return { ...publicConversation((await repository.byId(id, user.id, "customer")) ?? row), ...response };
     },
     reply: answer,
+    streamReply(user: Identity, id: string, text: string, key: string) { return answer(user, id, text, key, undefined, true); },
+    replayHandoff(user: Identity, id: string, text: string, key: string) {
+      if (!/^(?:i don't know|contact support)$/i.test(text.trim())) throw new ConversationError("human_mode");
+      return answer(user, id, text, key, undefined, true);
+    },
     async escalate(user: Identity, id: string) {
       if (user.role !== "customer") throw new ConversationError("forbidden");
       if (!validId(id)) throw new ConversationError("invalid");

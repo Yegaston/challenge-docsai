@@ -76,9 +76,27 @@ it("sweeps with no unused parameters and returns a serializable handoff row", as
   const worker = createConversationEscalation({ connect: vi.fn(async () => client) } as any);
   expect(await worker.sweep()).toBe(1);
   const row = await worker.handoff(id, id);
-  expect(row).toMatchObject({ id, status: "escalated", created_at: created });
+  expect(row).toMatchObject({ id, status: "escalated", created_at: created, clarification_deadline: null });
   expect(row?.created_at.toISOString()).toBe("2025-01-01T00:00:00.000Z");
   expect(client.query.mock.calls.filter(([sql]) => sql.startsWith("INSERT INTO tickets"))).toHaveLength(2);
+});
+
+it("persists one atomic content-safe handoff notice, with a distinct timer notice", async () => {
+  for (const owner of [undefined, id]) {
+    const row = { id, owner_id: id, status: "open", created_at: new Date(), deadline_due: true };
+    const queries: Array<[string, unknown[] | undefined]> = [];
+    const client = { query: vi.fn(async (sql: string, args?: unknown[]) => {
+      queries.push([sql, args]);
+      return { rows: sql.startsWith("SELECT id, owner_id") ? [row] : [] };
+    }), release: vi.fn() };
+    const worker = createConversationEscalation({ connect: vi.fn(async () => client) } as any);
+    await worker.handoff(id, owner);
+    await worker.handoff(id, owner);
+    const notices = queries.filter(([sql]) => sql.startsWith("INSERT INTO conversation_messages"));
+    expect(notices).toHaveLength(1);
+    expect(notices[0][1]?.[2]).toBe(owner ? "Connected to human support." : "Conversation handed to human support.");
+    expect(queries.findIndex(([sql]) => sql === "COMMIT")).toBeGreaterThan(queries.findIndex(([sql]) => sql.startsWith("INSERT INTO conversation_messages")));
+  }
 });
 
 it("uses locked, bounded due claims and an idempotent linked ticket", async () => {
