@@ -1,5 +1,6 @@
 import express, { type ErrorRequestHandler, type Response } from "express";
 import { createAnalysesRouter } from "../../analyses/http/controller.js";
+import type { AuditService } from "../../audit/services/audit.service.js";
 import type { AnalysesService } from "../../analyses/services/analyses.service.js";
 import { requireUser } from "../../auth/http/controller.js";
 import type { AuthService } from "../../auth/services/auth.service.js";
@@ -15,7 +16,7 @@ function sendError(response: Response, error: unknown) {
   }
 }
 
-export function createTicketsRouter(service: TicketsService, auth: AuthService, analyses?: AnalysesService) {
+export function createTicketsRouter(service: TicketsService, auth: AuthService, analyses?: AnalysesService, audit?: AuditService) {
   const router = express.Router();
   router.use((_request, response, next) => {
     response.set("Cache-Control", "no-store");
@@ -33,15 +34,21 @@ export function createTicketsRouter(service: TicketsService, auth: AuthService, 
   });
   router.get("/", async (_request, response) => {
     try {
-      response.json({ tickets: await service.list(response.locals.user.id) });
+      const ownerId = response.locals.user.id;
+      const tickets = await service.list(ownerId);
+      response.json({ tickets });
+      await audit?.record({ kind: "ticket_list", ownerId });
     } catch (error) {
       sendError(response, error);
     }
   });
   router.delete("/:id", async (request, response) => {
     try {
-      await service.delete(response.locals.user.id, request.params.id as string);
+      const ownerId = response.locals.user.id;
+      const ticketId = request.params.id as string;
+      await service.delete(ownerId, ticketId);
       response.status(204).end();
+      await audit?.record({ kind: "ticket_deleted", ownerId, ticketId });
     } catch (error) {
       sendError(response, error);
     }
@@ -52,6 +59,7 @@ export function createTicketsRouter(service: TicketsService, auth: AuthService, 
       const id = request.params.id as string;
       const ticket = await service.detail(owner, id);
       response.json({ ticket: { ...ticket, analyses: analyses ? await analyses.history(owner, id) : [] } });
+      await audit?.record({ kind: "ticket_detail", ownerId: owner, ticketId: id });
     } catch (error) {
       sendError(response, error);
     }

@@ -34,11 +34,14 @@ describe("demo persistence", () => {
     await seedDemoUser({ query }, "demo@example.test", "changed-password");
     expect(query.mock.calls[0][0]).toContain("CREATE TABLE IF NOT EXISTS users");
     const schemas = query.mock.calls.filter(([sql]) => sql.includes("CREATE TABLE"));
-    expect(schemas).toHaveLength(6);
+    expect(schemas).toHaveLength(8);
     expect(schemas[1][0]).toContain("CREATE TABLE IF NOT EXISTS tickets");
     expect(schemas[2][0]).toContain("CREATE TABLE IF NOT EXISTS analyses");
-    expect(schemas[4][0]).toContain("CREATE TABLE IF NOT EXISTS tickets");
-    expect(schemas[5][0]).toContain("CREATE TABLE IF NOT EXISTS analyses");
+    expect(schemas[3][0]).toContain("CREATE TABLE IF NOT EXISTS audit_events");
+    expect(schemas[4][0]).toContain("CREATE TABLE IF NOT EXISTS users");
+    expect(schemas[5][0]).toContain("CREATE TABLE IF NOT EXISTS tickets");
+    expect(schemas[6][0]).toContain("CREATE TABLE IF NOT EXISTS analyses");
+    expect(schemas[7][0]).toContain("CREATE TABLE IF NOT EXISTS audit_events");
     expect(stored === original).toBe(true);
     expect(await verifyPassword("synthetic-password", stored!.password_hash)).toBe(true);
     expect(await verifyPassword("changed-password", stored!.password_hash)).toBe(false);

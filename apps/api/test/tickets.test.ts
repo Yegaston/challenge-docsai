@@ -7,6 +7,7 @@ import { createAuthService } from "../src/modules/auth/services/auth.service.js"
 import { createTicketsRouter } from "../src/modules/tickets/http/controller.js";
 import { createTicketsService } from "../src/modules/tickets/services/tickets.service.js";
 import type { TicketRow } from "../src/modules/tickets/repositories/tickets.repository.js";
+import { createAuditService } from "../src/modules/audit/services/audit.service.js";
 
 const owner = "00000000-0000-4000-8000-000000000001";
 const other = "00000000-0000-4000-8000-000000000002";
@@ -20,6 +21,8 @@ let bearer: string;
 let otherBearer: string;
 let expired: string;
 const users = { byEmail: vi.fn(), byId: vi.fn() };
+const auditInsert = vi.fn(async (_event: unknown) => {});
+const auditDiagnostic = vi.fn();
 const repository = {
   insert: vi.fn(async (row: TicketRow) => { rows.push(row); return row; }),
   list: vi.fn(async (id: string) => rows.filter((row) => row.owner_id === id)),
@@ -40,7 +43,7 @@ async function token(id: string, exp = now.getTime() / 1000 + 900) {
 beforeAll(async () => {
   const auth = await createAuthService({ users, secret, now: () => now });
   const tickets = createTicketsService(repository, { id: () => ticketId, now: () => now });
-  app = createApp(async () => {}, createAuthRouter(auth), createTicketsRouter(tickets, auth));
+  app = createApp(async () => {}, createAuthRouter(auth), createTicketsRouter(tickets, auth, undefined, createAuditService({ insert: auditInsert }, auditDiagnostic)));
   bearer = await token(owner);
   otherBearer = await token(other);
   expired = await token(owner, now.getTime() / 1000);
@@ -49,6 +52,34 @@ beforeEach(() => {
   vi.clearAllMocks();
   rows = [];
   users.byId.mockImplementation(async (id) => [owner, other].includes(id) ? { id, email: "user@example.test" } : undefined);
+});
+
+it("audits only successful authenticated owner list, detail and deletion without content", async () => {
+  rows.push({ id: ticketId, owner_id: owner, text: "PRIVATE_TICKET_SENTINEL", created_at: now });
+  await request(app).get("/api/tickets").auth(bearer, { type: "bearer" });
+  await request(app).get(`/api/tickets/${ticketId}`).auth(bearer, { type: "bearer" });
+  await request(app).get(`/api/tickets/${ticketId}`).auth(otherBearer, { type: "bearer" });
+  await request(app).get(`/api/tickets/${unknownId}`).auth(bearer, { type: "bearer" });
+  await request(app).get("/api/tickets");
+  await request(app).delete(`/api/tickets/${ticketId}`).auth(otherBearer, { type: "bearer" });
+  await request(app).delete(`/api/tickets/${ticketId}`).auth(bearer, { type: "bearer" });
+  expect(auditInsert.mock.calls.map(([event]) => event)).toEqual([
+    { ownerId: owner, kind: "ticket_list" },
+    { ownerId: owner, kind: "ticket_detail", ticketId },
+    { ownerId: owner, kind: "ticket_deleted", ticketId },
+  ]);
+  expect(JSON.stringify(auditInsert.mock.calls)).not.toContain("PRIVATE_TICKET_SENTINEL");
+});
+
+it("keeps successful reads and owner deletion available when audit storage fails", async () => {
+  rows.push({ id: ticketId, owner_id: owner, text: "PRIVATE_TICKET_SENTINEL", created_at: now });
+  auditInsert.mockRejectedValue(new Error("PRIVATE_ERROR_SENTINEL"));
+  expect((await request(app).get("/api/tickets").auth(bearer, { type: "bearer" })).status).toBe(200);
+  expect((await request(app).get(`/api/tickets/${ticketId}`).auth(bearer, { type: "bearer" })).status).toBe(200);
+  expect((await request(app).delete(`/api/tickets/${ticketId}`).auth(bearer, { type: "bearer" })).status).toBe(204);
+  expect(rows).toHaveLength(0);
+  expect(auditDiagnostic).toHaveBeenCalledTimes(3);
+  expect(JSON.stringify(auditDiagnostic.mock.calls)).not.toMatch(/PRIVATE_ERROR_SENTINEL|PRIVATE_TICKET_SENTINEL/);
 });
 
 it("creates trimmed tickets independently of analysis, ignoring supplied identity and metadata", async () => {
@@ -78,6 +109,9 @@ it("lists only the verified owner's records and hides foreign detail exactly lik
   expect(missing.status).toBe(404);
   expect(foreign.body).toEqual(missing.body);
   expect(foreign.headers["cache-control"]).toBe("no-store");
+  expect(auditInsert.mock.calls.map(([event]) => event)).toEqual([
+    { kind: "ticket_list", ownerId: owner }, { kind: "ticket_list", ownerId: other },
+  ]);
 });
 
 it("deletes only owned tickets and hides foreign and absent tickets", async () => {
@@ -108,6 +142,7 @@ it("rejects malformed deletion and auth before persistence; maps lock and databa
   const failure = await request(app).delete(`/api/tickets/${ticketId}`).auth(bearer, { type: "bearer" });
   expect(failure.status).toBe(503);
   expect(failure.body).toEqual({ error: "Tickets unavailable. Try again." });
+  expect(auditInsert).not.toHaveBeenCalled();
 });
 
 it("returns every repository-ordered record without pagination or private fields", async () => {
@@ -173,6 +208,7 @@ for (const [method, path] of [["post", "/api/tickets"], ["get", "/api/tickets"],
     expect(repository.insert).not.toHaveBeenCalled();
     expect(repository.list).not.toHaveBeenCalled();
     expect(repository.byId).not.toHaveBeenCalled();
+    expect(auditInsert).not.toHaveBeenCalled();
   });
   it(`${method} ${path} maps database failures without leaking details`, async () => {
     const operation = method === "post" ? repository.insert : path.endsWith(ticketId) ? repository.byId : repository.list;
@@ -181,6 +217,7 @@ for (const [method, path] of [["post", "/api/tickets"], ["get", "/api/tickets"],
     expect(response.status).toBe(503);
     expect(response.body).toEqual({ error: "Tickets unavailable. Try again." });
     expect(response.headers["cache-control"]).toBe("no-store");
+    expect(auditInsert).not.toHaveBeenCalled();
   });
 }
 
