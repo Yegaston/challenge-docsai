@@ -15,6 +15,7 @@ import { createAnalysesService } from "./modules/analyses/services/analyses.serv
 import { createAnalysisProvider } from "./modules/analyses/utils/provider.js";
 import { createTicketRetentionService } from "./modules/tickets/services/ticket-retention.service.js";
 import { startTicketRetention } from "./infrastructure/ticket-retention.js";
+import { createAuditRetention, startAuditRetention } from "./infrastructure/audit-retention.js";
 
 if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL is required. See README.md for local setup.");
@@ -37,16 +38,19 @@ pool.on("error", () => console.error("An idle database connection failed."));
 let auth;
 let tickets;
 let stopRetention: (() => Promise<void>) | undefined;
+let stopAuditRetention: (() => Promise<void>) | undefined;
 try {
   const authService = await createAuthService({ users: createUsers(pool), secret: process.env.JWT_SECRET });
   auth = createAuthRouter(authService);
   const ticketsService = createTicketsService(createTickets(pool));
+  const audit = createAuditService(createAuditRepository(pool));
   const analyses = createAnalysesService(createAnalyses(pool), ticketsService, createAnalysisProvider({
     apiKey: process.env.OPENROUTER_API_KEY, model: process.env.OPENROUTER_MODEL,
-  }));
-  tickets = createTicketsRouter(ticketsService, authService, analyses, createAuditService(createAuditRepository(pool)));
+  }), audit);
+  tickets = createTicketsRouter(ticketsService, authService, analyses, audit);
   await initializeUsers(pool, process.env.DEMO_EMAIL, process.env.DEMO_PASSWORD);
   stopRetention = startTicketRetention(createTicketRetentionService(createTickets(pool)));
+  stopAuditRetention = startAuditRetention(createAuditRetention(pool));
 } catch {
   // Startup errors may contain driver details or credentials: never print them.
   console.error("Authentication initialization failed. Check database access and DEMO_EMAIL, DEMO_PASSWORD, JWT_SECRET configuration (README.md).");
@@ -67,6 +71,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
     server.close(() => {
       void (async () => {
         await stopRetention?.();
+        await stopAuditRetention?.();
         await pool.end();
       })().then(() => {
         clearTimeout(deadline);

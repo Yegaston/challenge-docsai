@@ -17,7 +17,10 @@ export function publicAnalysis(row: AnalysisRecord) {
   };
 }
 export type AnalysesService = ReturnType<typeof createAnalysesService>;
-export function createAnalysesService(repository: Analyses, tickets: Pick<TicketsService, "detail">, provider: AnalysisProvider) {
+export function createAnalysesService(repository: Analyses, tickets: Pick<TicketsService, "detail">, provider: AnalysisProvider, audit?: Pick<import("../../audit/services/audit.service.js").AuditService, "record">) {
+  const record = async (event: import("../../audit/repositories/audit.repository.js").AuditEvent) => {
+    try { await audit?.record(event); } catch { /* Best effort even for injected implementations. */ }
+  };
   return {
     async history(owner: string, ticket: string) {
       return (await repository.history(owner, ticket)).map(publicAnalysis);
@@ -40,6 +43,7 @@ export function createAnalysesService(repository: Analyses, tickets: Pick<Ticket
       try { lease = await repository.start(row); }
       catch (error) { throw error instanceof AnalysisError ? error : new AnalysisError("database"); }
       try {
+        void record({ kind: "analysis_started", ownerId: owner, ticketId, analysisId: row.id });
         try {
           const output = outputSchema.safeParse(await provider.generate(ticket.text, instruction));
           if (!output.success) throw new ProviderFailure("invalid_output");
@@ -51,6 +55,9 @@ export function createAnalysesService(repository: Analyses, tickets: Pick<Ticket
         }
         try { row = await lease.finish(row); }
         catch { throw new AnalysisError("database"); }
+        void record(row.status === "succeeded"
+          ? { kind: "analysis_succeeded", ownerId: owner, ticketId, analysisId: row.id }
+          : { kind: "analysis_failed", ownerId: owner, ticketId, analysisId: row.id, failureCode: row.failure_code! });
         const analysis = publicAnalysis(row);
         if (row.failure_code) throw new AnalysisError(row.failure_code, analysis);
         return analysis;

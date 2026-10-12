@@ -8,8 +8,24 @@ it("stores only typed owner-scoped event fields through parameterized SQL", asyn
   const repository = createAuditRepository({ query } as never);
   await repository.insert({ kind: "ticket_deleted", ownerId: "owner-id", ticketId: "ticket-id" });
   expect(query).toHaveBeenCalledWith(expect.stringContaining("INSERT INTO audit_events"),
-    ["owner-id", "ticket-id", "ticket_deleted"]);
+    ["owner-id", "ticket-id", "ticket_deleted", null, null]);
   expect(JSON.stringify(query.mock.calls)).not.toContain("PRIVATE_TICKET_SENTINEL");
+});
+
+it("stores analysis identifiers and bounded failure codes without content", async () => {
+  const query = vi.fn();
+  await createAuditRepository({ query } as never).insert({ kind: "analysis_failed", ownerId: "owner", ticketId: "ticket", analysisId: "attempt", failureCode: "timeout" });
+  expect(query.mock.calls[0][1]).toEqual(["owner", "ticket", "analysis_failed", "attempt", "timeout"]);
+});
+
+it("upgrades 006 once without revalidating the full audit table at each restart", async () => {
+  const sql = await readFile(new URL("../migrations/007-audit-retention.sql", import.meta.url), "utf8");
+  expect(sql).toMatch(/IF NOT EXISTS \(SELECT 1 FROM pg_constraint/);
+  expect(sql).toMatch(/audit_events_created_at_id_idx.*created_at, id/);
+  expect(sql).toContain("analysis_started");
+  expect(sql).toContain("analysis_succeeded");
+  expect(sql).toContain("analysis_failed");
+  expect(sql).not.toMatch(/\bVALIDATE CONSTRAINT\b/);
 });
 
 it("swallows synchronous and asynchronous audit failures with content-free diagnostics", async () => {

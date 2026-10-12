@@ -35,6 +35,7 @@ describe("demo persistence", () => {
     expect(query.mock.calls[0][0]).toContain("CREATE TABLE IF NOT EXISTS users");
     const schemas = query.mock.calls.filter(([sql]) => sql.includes("CREATE TABLE"));
     expect(schemas).toHaveLength(8);
+    expect(query.mock.calls.filter(([sql]) => sql.includes("audit_analysis_shape"))).toHaveLength(2);
     expect(schemas[1][0]).toContain("CREATE TABLE IF NOT EXISTS tickets");
     expect(schemas[2][0]).toContain("CREATE TABLE IF NOT EXISTS analyses");
     expect(schemas[3][0]).toContain("CREATE TABLE IF NOT EXISTS audit_events");

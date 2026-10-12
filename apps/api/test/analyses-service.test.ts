@@ -18,6 +18,47 @@ function fixture() {
   const service = createAnalysesService({ start, history }, { detail }, { model: "test/model", generate });
   return { rows, release, finish, start, history, detail, generate, service };
 }
+it("audits only durable starts and finishes, without blocking provider or release", async () => {
+  const f = fixture(); const record = vi.fn().mockRejectedValue(new Error("PRIVATE"));
+  const service = createAnalysesService({ start: f.start, history: f.history }, { detail: f.detail },
+    { model: "test", generate: f.generate }, { record });
+  await service.analyze("owner", id, undefined);
+  expect(record.mock.calls.map(([event]) => event.kind)).toEqual(["analysis_started", "analysis_succeeded"]);
+  expect(record.mock.calls[0][0]).toMatchObject({ ownerId: "owner", ticketId: id, analysisId: f.rows[0].id });
+  expect(f.generate).toHaveBeenCalledTimes(1); expect(f.release).toHaveBeenCalledTimes(1);
+  f.generate.mockRejectedValueOnce(new ProviderFailure("timeout"));
+  await expect(service.analyze("owner", id, undefined)).rejects.toMatchObject({ kind: "timeout" });
+  expect(record.mock.calls[3][0]).toMatchObject({ kind: "analysis_failed", failureCode: "timeout" });
+  expect(JSON.stringify(record.mock.calls)).not.toContain("PRIVATE");
+});
+it("never waits for pending audit writes before provider or lease release", async () => {
+  const f = fixture();
+  const record = vi.fn((_event: { kind: string }) => new Promise<void>(() => {}));
+  const service = createAnalysesService({ start: f.start, history: f.history }, { detail: f.detail },
+    { model: "test", generate: f.generate }, { record });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const result = await Promise.race([
+      service.analyze("owner", id, undefined),
+      new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("audit stalled analysis")), 1000); }),
+    ]);
+    expect(result.status).toBe("succeeded");
+    expect(f.generate).toHaveBeenCalledTimes(1);
+    expect(f.release).toHaveBeenCalledTimes(1);
+    expect(record.mock.calls.map(([event]) => event.kind)).toEqual(["analysis_started", "analysis_succeeded"]);
+  } finally { if (timer) clearTimeout(timer); }
+});
+it("does not claim unpersisted audit states", async () => {
+  const f = fixture(); const record = vi.fn();
+  const service = createAnalysesService({ start: f.start, history: f.history }, { detail: f.detail },
+    { model: "test", generate: f.generate }, { record });
+  f.start.mockRejectedValueOnce(new Error("PRIVATE"));
+  await expect(service.analyze("owner", id, undefined)).rejects.toMatchObject({ kind: "database" });
+  expect(record).not.toHaveBeenCalled();
+  f.finish.mockRejectedValueOnce(new Error("PRIVATE"));
+  await expect(service.analyze("owner", id, undefined)).rejects.toMatchObject({ kind: "database" });
+  expect(record.mock.calls.map(([event]) => event.kind)).toEqual(["analysis_started"]);
+});
 it("creates immutable versions from original ticket and current trimmed instruction", async () => {
   const f = fixture();
   const first = await f.service.analyze("owner", id, undefined);
