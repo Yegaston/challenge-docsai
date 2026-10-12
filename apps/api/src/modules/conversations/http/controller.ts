@@ -18,6 +18,14 @@ export function createConversationsRouter(service: ConversationsService, auth: A
       response.status(201).json(await service.reply(response.locals.user, request.params.id as string, body.text, body.idempotencyKey));
     } catch (error) { sendError(response, error); }
   });
+  router.post("/:id/escalate", async (request, response) => {
+    try { response.json(await service.escalate(response.locals.user, request.params.id as string)); }
+    catch (error) { sendError(response, error); }
+  });
+  router.post("/:id/resolve", async (request, response) => {
+    try { response.json(await service.resolve(response.locals.user, request.params.id as string)); }
+    catch (error) { sendError(response, error); }
+  });
   router.get("/", async (_request, response) => {
     try { response.json({ conversations: await service.list(response.locals.user) }); }
     catch (error) { sendError(response, error); }

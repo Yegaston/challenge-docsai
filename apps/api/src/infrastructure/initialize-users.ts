@@ -13,7 +13,7 @@ export async function initializeUsers(database: Database, email: unknown, passwo
   // Anchor at the original root module location: src/../migrations and dist/../migrations.
   // Run on every startup, not only PostgreSQL's first-volume initialization.
   const root = new URL("../", import.meta.url);
-  for (const migration of ["001-users.sql", "002-tickets.sql", "003-analyses.sql", "004-ticket-deletion.sql", "005-ticket-retention-index.sql", "006-audit-events.sql", "007-audit-retention.sql", "008-wrong-answer-reports.sql", "009-report-corrections.sql", "010-support-conversations.sql", "011-transfer-agent.sql", "012-chat-idempotency.sql", "013-chat-claim-retention.sql", "014-chat-claim-state.sql"]) {
+  for (const migration of ["001-users.sql", "002-tickets.sql", "003-analyses.sql", "004-ticket-deletion.sql", "005-ticket-retention-index.sql", "006-audit-events.sql", "007-audit-retention.sql", "008-wrong-answer-reports.sql", "009-report-corrections.sql", "010-support-conversations.sql", "011-transfer-agent.sql", "012-chat-idempotency.sql", "013-chat-claim-retention.sql", "014-chat-claim-state.sql", "015-conversation-handoff.sql", "016-conversation-handoff-integrity.sql"]) {
     const schema = await readFile(new URL(`../migrations/${migration}`, root), "utf8");
     await database.query(schema);
   }

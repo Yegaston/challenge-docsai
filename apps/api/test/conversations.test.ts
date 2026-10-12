@@ -98,6 +98,7 @@ it("replays a completed send without invoking the provider twice and rejects cha
     admit: vi.fn(async (_owner: string, _id: string, _key: string, text: string) => state === "duplicate" && text !== "where?" ? "conflict" as const : state),
     completed: vi.fn(async () => ({ state: "done", response: { text: "verified" } })),
     finish: vi.fn(async () => {}), complete: vi.fn(async () => {}), throttle: vi.fn(async () => true),
+    withInvocation: vi.fn(async (_owner: string, _id: string, run: () => Promise<unknown>) => run()),
   };
   const run = vi.fn(async () => ({ text: "verified", activity: [] }));
   const service = createConversationsService(repository as any, { run } as any);
@@ -146,4 +147,72 @@ it("rejects partial support seed configuration and scopes repository reads befor
   expect(query.mock.calls[0][1]).toEqual([customer.id, other.id]);
   await repository.list(support.id, "support");
   expect(query.mock.calls[1][0]).toContain("status = 'escalated'");
+});
+
+it("routes only exact trimmed handoff phrases without provider invocation", async () => {
+  const row = { id: customer.id, owner_id: customer.id, status: "open" as const, created_at: new Date() };
+  const repository = { byId: vi.fn(async () => row), admit: vi.fn(async () => "new"), messages: vi.fn(async () => []), complete: vi.fn(), finish: vi.fn(), withInvocation: vi.fn(async (_owner: string, _id: string, run: () => Promise<unknown>) => run()) };
+  const agent = { run: vi.fn(async () => ({ text: "answer", activity: [] })) };
+  const escalation = { handoff: vi.fn(async () => ({ ...row, status: "escalated" })) };
+  const service = createConversationsService(repository as any, agent as any, escalation as any);
+  await service.reply(customer, row.id, "  I DON'T KNOW  ", other.id);
+  expect(agent.run).not.toHaveBeenCalled();
+  expect(escalation.handoff).toHaveBeenCalledOnce();
+  await service.reply(customer, row.id, "I don't know where it went", support.id);
+  expect(agent.run).toHaveBeenCalledOnce();
+});
+
+it("retries exact handoff after escalation without a human message and reports resolved honestly", async () => {
+  const row = { id: customer.id, owner_id: customer.id, status: "escalated" as "escalated" | "resolved", created_at: new Date(), ticket_id: support.id };
+  const repository = { byId: vi.fn(async () => row), humanMessage: vi.fn(), completed: vi.fn(async () => ({ state: "done", response: { text: "Connected to human support." } })) };
+  const escalation = { handoff: vi.fn(async () => row) };
+  const service = createConversationsService(repository as any, { run: vi.fn() } as any, escalation);
+  expect(await service.reply(customer, row.id, "I don't know", other.id)).toEqual({ text: "Connected to human support.", ticketId: support.id });
+  expect(repository.humanMessage).not.toHaveBeenCalled();
+  row.status = "resolved";
+  await expect(service.reply(customer, row.id, "contact support", other.id)).rejects.toThrow("forbidden");
+  expect(repository.humanMessage).not.toHaveBeenCalled();
+});
+
+it("does not invoke after a handoff wins the invocation lock", async () => {
+  const row = { id: customer.id, owner_id: customer.id, status: "open", created_at: new Date() };
+  const repository = { byId: vi.fn(async () => row), admit: vi.fn(async () => "new"), messages: vi.fn(async () => []),
+    withInvocation: vi.fn(async (_owner: string, _id: string, _run: () => Promise<unknown>) => { row.status = "escalated"; throw Error("Conversation no longer open"); }), complete: vi.fn() };
+  const agent = { run: vi.fn() };
+  await expect(createConversationsService(repository as any, agent as any).reply(customer, row.id, "where?", other.id)).rejects.toThrow("outcome_unknown");
+  expect(agent.run).not.toHaveBeenCalled();
+});
+
+it("requires UUID keys for escalated messages", async () => {
+  const row = { id: customer.id, owner_id: customer.id, status: "escalated" as const, created_at: new Date() };
+  const repository = { byId: vi.fn(async () => row), humanMessage: vi.fn(async () => "new") };
+  const service = createConversationsService(repository as any);
+  await expect(service.reply(customer, row.id, "hi", "bad")).rejects.toThrow("invalid");
+  expect(repository.humanMessage).not.toHaveBeenCalled();
+});
+
+it("deduplicates human retries under conversation lock and rejects changed text", async () => {
+  const statements: string[] = [];
+  let previous: string | undefined;
+  const client = { query: vi.fn(async (sql: string, args?: unknown[]) => {
+    statements.push(sql);
+    if (sql.startsWith("SELECT status")) return { rows: [{ status: "escalated" }] };
+    if (sql.startsWith("SELECT text")) return { rows: previous === undefined ? [] : [{ text: previous }] };
+    if (sql.startsWith("INSERT INTO conversation_messages")) previous = args?.[3] as string;
+    return { rows: [] };
+  }), release: vi.fn() };
+  const repository = createConversations({ query: vi.fn(), connect: vi.fn(async () => client) } as any);
+  expect(await repository.humanMessage!(customer.id, customer.id, "customer", other.id, "hi")).toBe("new");
+  expect(await repository.humanMessage!(customer.id, customer.id, "customer", other.id, "hi")).toBe("duplicate");
+  expect(await repository.humanMessage!(customer.id, customer.id, "customer", other.id, "changed")).toBe("conflict");
+  expect(statements.filter(sql => sql.startsWith("INSERT INTO conversation_messages"))).toHaveLength(1);
+  expect(statements.find(sql => sql.startsWith("SELECT status"))).toContain("FOR UPDATE");
+});
+
+it("migrates ticket deletion cascade and persistent human idempotency", async () => {
+  const migration = await readFile(new URL("../migrations/016-conversation-handoff-integrity.sql", import.meta.url), "utf8");
+  expect(migration).toMatch(/REFERENCES tickets\(id\) ON DELETE CASCADE/);
+  expect(migration).toMatch(/UNIQUE INDEX IF NOT EXISTS conversation_human_message_key/);
+  const startup = await readFile(new URL("../src/infrastructure/initialize-users.ts", import.meta.url), "utf8");
+  expect(startup).toContain('"016-conversation-handoff-integrity.sql"');
 });

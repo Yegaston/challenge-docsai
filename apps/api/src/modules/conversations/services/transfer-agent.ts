@@ -42,7 +42,7 @@ export function createTransferAgent(provider: TransferProvider, transfers: Trans
       if (calls > 2) throw new Error("tool_budget");
       // Never expose model prose as a verified status. The server alone formats evidence.
       const unique = [...new Map(evidence.map(row => [row.id, row])).values()];
-      return { text: unique.length === 1 ? `Synthetic transfer ${unique[0].id} for ${unique[0].amount} on ${unique[0].date} is ${unique[0].status}.` : unique.length > 1 ? "Multiple transfers match; please provide the transfer ID so I can confirm its status." : clarification, activity };
+      return { text: unique.length === 1 ? `Synthetic transfer ${unique[0].id} for ${unique[0].amount} on ${unique[0].date} is ${unique[0].status}.` : unique.length > 1 ? "Multiple transfers match; please provide the transfer ID so I can confirm its status." : clarification, activity, needsClarification: unique.length !== 1 };
     } catch { throw new Error("agent_unavailable"); }
   } };
 }

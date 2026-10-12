@@ -24,6 +24,7 @@ import { createTicketRetentionService } from "./modules/tickets/services/ticket-
 import { startTicketRetention } from "./infrastructure/ticket-retention.js";
 import { createAuditRetention, startAuditRetention } from "./infrastructure/audit-retention.js";
 import { createConversationRetention, startConversationRetention } from "./infrastructure/conversation-retention.js";
+import { createConversationEscalation, startConversationEscalation } from "./infrastructure/conversation-escalation.js";
 
 if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL is required. See README.md for local setup.");
@@ -49,10 +50,12 @@ let conversations;
 let stopRetention: (() => Promise<void>) | undefined;
 let stopAuditRetention: (() => Promise<void>) | undefined;
 let stopConversationRetention: (() => Promise<void>) | undefined;
+let stopEscalation: (() => Promise<void>) | undefined;
 try {
   const authService = await createAuthService({ users: createUsers(pool), secret: process.env.JWT_SECRET });
   auth = createAuthRouter(authService);
-  conversations = createConversationsRouter(createConversationsService(createConversations(pool), createTransferAgent(createTransferProvider(process.env.OPENROUTER_API_KEY, process.env.OPENROUTER_MODEL), createTransfers(pool))), authService);
+  const escalation = createConversationEscalation(pool);
+  conversations = createConversationsRouter(createConversationsService(createConversations(pool), createTransferAgent(createTransferProvider(process.env.OPENROUTER_API_KEY, process.env.OPENROUTER_MODEL), createTransfers(pool)), escalation), authService);
   const ticketsService = createTicketsService(createTickets(pool));
   const audit = createAuditService(createAuditRepository(pool));
   const analyses = createAnalysesService(createAnalyses(pool), ticketsService, createAnalysisProvider({
@@ -63,6 +66,7 @@ try {
   stopRetention = startTicketRetention(createTicketRetentionService(createTickets(pool)));
   stopAuditRetention = startAuditRetention(createAuditRetention(pool));
   stopConversationRetention = startConversationRetention(createConversationRetention(pool));
+  stopEscalation = startConversationEscalation(escalation);
 } catch {
   // Startup errors may contain driver details or credentials: never print them.
   console.error("Authentication initialization failed. Check database access and DEMO_EMAIL, DEMO_PASSWORD, JWT_SECRET configuration (README.md).");
@@ -85,6 +89,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
         await stopRetention?.();
         await stopAuditRetention?.();
         await stopConversationRetention?.();
+        await stopEscalation?.();
         await pool.end();
       })().then(() => {
         clearTimeout(deadline);

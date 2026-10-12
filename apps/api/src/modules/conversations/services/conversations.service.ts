@@ -7,13 +7,28 @@ export class ConversationError extends Error {
 }
 
 type Identity = { id: string; role: Role };
-const publicConversation = (row: Conversation) => ({ id: row.id, status: row.status, createdAt: row.created_at.toISOString() });
+const publicConversation = (row: Conversation) => ({ id: row.id, status: row.status, createdAt: row.created_at.toISOString(), clarificationDeadline: row.clarification_deadline?.toISOString() ?? null, ticketId: row.ticket_id ?? null });
 const validId = (id: string) => /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(id);
 
-export function createConversationsService(repository: Conversations, agent?: TransferAgent) {
+export function createConversationsService(repository: Conversations, agent?: TransferAgent, escalation?: { handoff(id: string, owner: string): Promise<Conversation | undefined> }) {
   async function answer(user: Identity, id: string, text: string, key: string, opening?: Conversation) {
+    if (!validId(id) || typeof text !== "string" || !text.trim() || text.length > 2000 || text.includes("\u0000")) throw new ConversationError("invalid");
+    if (!validId(key)) throw new ConversationError("invalid");
+    const current = await repository.byId(id, user.id, user.role);
+    const handoffPhrase = user.role === "customer" && /^(?:i don't know|contact support)$/i.test(text.trim());
+    if (handoffPhrase && current?.status === "escalated") {
+      const prior = await repository.completed?.(user.id, id, key);
+      if (prior?.state === "done" && prior.response?.text !== "Connected to human support.") throw new ConversationError("invalid");
+      return { text: "Connected to human support.", ticketId: current.ticket_id ?? null };
+    }
+    if (current?.status === "resolved") throw new ConversationError("forbidden");
+    if (current?.status === "escalated") {
+      const result = await repository.humanMessage?.(id, user.id, user.role, key, text.trim());
+      if (result === "conflict") throw new ConversationError("invalid");
+      if (!result) throw new ConversationError("missing");
+      return { text: text.trim() };
+    }
     if (user.role !== "customer") throw new ConversationError("forbidden");
-    if (!validId(id) || !validId(key) || typeof text !== "string" || !text.trim() || text.length > 2000 || text.includes("\u0000")) throw new ConversationError("invalid");
     if (!agent) throw new ConversationError("unavailable");
     const claim = await repository.admit!(user.id, id, key, text.trim(), opening);
     if (claim === "conflict") throw new ConversationError("invalid");
@@ -24,11 +39,21 @@ export function createConversationsService(repository: Conversations, agent?: Tr
       throw new ConversationError(prior.state === "outcome_unknown" ? "outcome_unknown" : prior.state === "failed" ? "unavailable" : "busy");
     }
     try {
+      if (handoffPhrase) {
+        if (!escalation) throw new ConversationError("unavailable");
+        const row = await escalation.handoff(id, user.id);
+        if (!row) throw new ConversationError("missing");
+        await repository.finish!(user.id, id, key, { text: "Connected to human support." });
+        return { text: "Connected to human support.", ticketId: row.ticket_id ?? null };
+      }
       const history = (await repository.messages(id)).map(m => `${m.sender_role}: ${m.text}`).slice(-8);
-      const result = await agent.run(user.id, text.trim(), history);
-      const response = { text: result.text };
-      await repository.complete!(user.id, id, key, result.activity, response);
-      return response;
+      if (!repository.withInvocation) throw new ConversationError("unavailable");
+      return await repository.withInvocation(user.id, id, async () => {
+        const result = await agent.run(user.id, text.trim(), history);
+        const response = { text: result.text, needsClarification: result.needsClarification };
+        await repository.complete!(user.id, id, key, result.activity, response);
+        return { text: response.text };
+      });
     } catch (error) {
       throw error instanceof ConversationError ? error : new ConversationError("outcome_unknown");
     }
@@ -48,6 +73,20 @@ export function createConversationsService(repository: Conversations, agent?: Tr
       return { ...publicConversation((await repository.byId(id, user.id, "customer")) ?? row), ...response };
     },
     reply: answer,
+    async escalate(user: Identity, id: string) {
+      if (user.role !== "customer") throw new ConversationError("forbidden");
+      if (!validId(id)) throw new ConversationError("invalid");
+      if (!escalation) throw new ConversationError("unavailable");
+      const row = await escalation.handoff(id, user.id);
+      if (!row) throw new ConversationError("missing");
+      return publicConversation(row);
+    },
+    async resolve(user: Identity, id: string) {
+      if (user.role !== "customer") throw new ConversationError("forbidden");
+      if (!validId(id)) throw new ConversationError("invalid");
+      if (!await repository.resolve?.(id, user.id)) throw new ConversationError("missing");
+      return { status: "resolved" };
+    },
     async list(user: Identity) { return (await repository.list(user.id, user.role)).map(publicConversation); },
     async detail(user: Identity, id: string) {
       if (!validId(id)) throw new ConversationError("invalid");
