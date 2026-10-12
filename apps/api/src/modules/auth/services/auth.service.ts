@@ -57,7 +57,7 @@ export async function createAuthService({ users, secret, now = () => new Date() 
       try {
         const user = await users.byId(subject);
         if (!user) throw new AuthError("invalid-session");
-        return { id: user.id, email: user.email };
+        return { id: user.id, email: user.email, role: user.role === "support" ? "support" as const : "customer" as const };
       } catch (error) {
         if (error instanceof AuthError) throw error;
         throw new AuthError("unavailable");

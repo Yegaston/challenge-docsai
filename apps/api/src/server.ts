@@ -1,4 +1,7 @@
 import { Pool } from "pg";
+import { createConversations } from "./modules/conversations/repositories/conversations.repository.js";
+import { createConversationsService } from "./modules/conversations/services/conversations.service.js";
+import { createConversationsRouter } from "./modules/conversations/http/controller.js";
 import { createReportsRepository } from "./modules/reports/repositories/reports.repository.js";
 import { createReportsService } from "./modules/reports/services/reports.service.js";
 import { createAuditRepository } from "./modules/audit/repositories/audit.repository.js";
@@ -18,6 +21,7 @@ import { createAnalysisProvider } from "./modules/analyses/utils/provider.js";
 import { createTicketRetentionService } from "./modules/tickets/services/ticket-retention.service.js";
 import { startTicketRetention } from "./infrastructure/ticket-retention.js";
 import { createAuditRetention, startAuditRetention } from "./infrastructure/audit-retention.js";
+import { createConversationRetention, startConversationRetention } from "./infrastructure/conversation-retention.js";
 
 if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL is required. See README.md for local setup.");
@@ -39,20 +43,24 @@ pool.on("error", () => console.error("An idle database connection failed."));
 
 let auth;
 let tickets;
+let conversations;
 let stopRetention: (() => Promise<void>) | undefined;
 let stopAuditRetention: (() => Promise<void>) | undefined;
+let stopConversationRetention: (() => Promise<void>) | undefined;
 try {
   const authService = await createAuthService({ users: createUsers(pool), secret: process.env.JWT_SECRET });
   auth = createAuthRouter(authService);
+  conversations = createConversationsRouter(createConversationsService(createConversations(pool)), authService);
   const ticketsService = createTicketsService(createTickets(pool));
   const audit = createAuditService(createAuditRepository(pool));
   const analyses = createAnalysesService(createAnalyses(pool), ticketsService, createAnalysisProvider({
     apiKey: process.env.OPENROUTER_API_KEY, model: process.env.OPENROUTER_MODEL,
   }), audit);
   tickets = createTicketsRouter(ticketsService, authService, analyses, audit, createReportsService(createReportsRepository(pool)));
-  await initializeUsers(pool, process.env.DEMO_EMAIL, process.env.DEMO_PASSWORD);
+  await initializeUsers(pool, process.env.DEMO_EMAIL, process.env.DEMO_PASSWORD, process.env.SUPPORT_EMAIL, process.env.SUPPORT_PASSWORD);
   stopRetention = startTicketRetention(createTicketRetentionService(createTickets(pool)));
   stopAuditRetention = startAuditRetention(createAuditRetention(pool));
+  stopConversationRetention = startConversationRetention(createConversationRetention(pool));
 } catch {
   // Startup errors may contain driver details or credentials: never print them.
   console.error("Authentication initialization failed. Check database access and DEMO_EMAIL, DEMO_PASSWORD, JWT_SECRET configuration (README.md).");
@@ -60,7 +68,7 @@ try {
   process.exit(1);
 }
 
-const app = createApp(createHealthRepository(pool).check, auth, tickets);
+const app = createApp(createHealthRepository(pool).check, auth, tickets, conversations);
 const server = app.listen(port, "0.0.0.0", () => {
   console.log(`API listening on port ${port}`);
 });
@@ -74,6 +82,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
       void (async () => {
         await stopRetention?.();
         await stopAuditRetention?.();
+        await stopConversationRetention?.();
         await pool.end();
       })().then(() => {
         clearTimeout(deadline);

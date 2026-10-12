@@ -9,7 +9,7 @@ it("authenticates without HTTP, resolves current identity, and rejects expired s
   const auth = await createAuthService({ users, secret: "s".repeat(32), now: () => time });
   const session = await auth.login(user.email, "synthetic-password");
   expect(session.expiresAt).toBe(time.getTime() + 900000);
-  expect(await auth.identity(session.token)).toEqual({ id: user.id, email: user.email });
+  expect(await auth.identity(session.token)).toEqual({ id: user.id, email: user.email, role: "customer" });
   expect(users.byId).toHaveBeenCalledWith(user.id);
   await expect(auth.login(user.email, "wrong-password")).rejects.toThrow("invalid-credentials");
   users.byId.mockRejectedValue(new Error("driver details"));

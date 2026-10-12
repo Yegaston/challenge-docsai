@@ -7,8 +7,8 @@ it("parameterizes every persisted field and preserves conflict-safe inserts", as
   const user = { id: "id'", email: "email'", password_hash: "hash'" };
   await users.insert(user);
   expect(query).toHaveBeenCalledWith(
-    "INSERT INTO users (id, email, password_hash) VALUES ($1, $2, $3) ON CONFLICT (email) DO NOTHING",
-    [user.id, user.email, user.password_hash],
+    "INSERT INTO users (id, email, password_hash, role) VALUES ($1, $2, $3, $4) ON CONFLICT (email) DO NOTHING",
+    [user.id, user.email, user.password_hash, "customer"],
   );
   await users.byEmail(user.email);
   await users.byId(user.id);

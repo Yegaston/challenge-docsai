@@ -34,19 +34,17 @@ describe("demo persistence", () => {
     await seedDemoUser({ query }, "demo@example.test", "changed-password");
     expect(query.mock.calls[0][0]).toContain("CREATE TABLE IF NOT EXISTS users");
     const schemas = query.mock.calls.filter(([sql]) => sql.includes("CREATE TABLE"));
-    expect(schemas).toHaveLength(12);
+    expect(schemas).toHaveLength(14);
     expect(query.mock.calls.filter(([sql]) => sql.includes("audit_report_shape"))).toHaveLength(6);
     expect(schemas[1][0]).toContain("CREATE TABLE IF NOT EXISTS tickets");
     expect(schemas[2][0]).toContain("CREATE TABLE IF NOT EXISTS analyses");
     expect(schemas[3][0]).toContain("CREATE TABLE IF NOT EXISTS audit_events");
     expect(schemas[4][0]).toContain("CREATE TABLE IF NOT EXISTS wrong_answer_reports");
     expect(schemas[5][0]).toContain("CREATE TABLE IF NOT EXISTS report_corrections");
-    expect(schemas[6][0]).toContain("CREATE TABLE IF NOT EXISTS users");
-    expect(schemas[7][0]).toContain("CREATE TABLE IF NOT EXISTS tickets");
-    expect(schemas[8][0]).toContain("CREATE TABLE IF NOT EXISTS analyses");
-    expect(schemas[9][0]).toContain("CREATE TABLE IF NOT EXISTS audit_events");
-    expect(schemas[10][0]).toContain("CREATE TABLE IF NOT EXISTS wrong_answer_reports");
-    expect(schemas[11][0]).toContain("CREATE TABLE IF NOT EXISTS report_corrections");
+    expect(schemas[6][0]).toContain("CREATE TABLE IF NOT EXISTS conversations");
+    for (let index = 0; index < 7; index++) expect(schemas[index + 7][0]).toBe(schemas[index][0]);
+    expect(schemas[6][0]).toContain("ADD COLUMN IF NOT EXISTS role");
+    expect(schemas[6][0]).toContain("CREATE TABLE IF NOT EXISTS conversation_messages");
     expect(stored === original).toBe(true);
     expect(await verifyPassword("synthetic-password", stored!.password_hash)).toBe(true);
     expect(await verifyPassword("changed-password", stored!.password_hash)).toBe(false);
@@ -71,7 +69,7 @@ describe("demo persistence", () => {
   it("anchors migrations outside both source and built infrastructure directories", async () => {
     const source = await readFile(new URL("../src/infrastructure/initialize-users.ts", import.meta.url), "utf8");
     expect(source).toContain('new URL("../", import.meta.url)');
-    expect(source).toContain('"009-report-corrections.sql"');
+    expect(source).toContain('"010-support-conversations.sql"');
     for (const location of ["src", "dist"]) {
       const root = new URL("../", new URL(`../${location}/infrastructure/initialize-users.js`, import.meta.url));
       const migration = new URL("../migrations/002-tickets.sql", root);

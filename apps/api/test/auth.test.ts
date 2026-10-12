@@ -9,7 +9,7 @@ const secret = "synthetic-test-key-".repeat(4);
 const key = new TextEncoder().encode(secret);
 const now = new Date("2026-01-01T00:00:00Z");
 const id = "00000000-0000-4000-8000-000000000001";
-let user: { id: string; email: string; password_hash: string };
+let user: { id: string; email: string; password_hash: string; role?: "customer" | "support" };
 let app: ReturnType<typeof createApp>;
 const users = { byEmail: vi.fn(), byId: vi.fn() };
 
@@ -40,8 +40,16 @@ describe("demo login", () => {
     const me = await request(app).get("/api/auth/me").auth(response.body.token, { type: "bearer" });
     expect(me.status).toBe(200);
     expect(me.headers["cache-control"]).toBe("no-store");
-    expect(me.body).toEqual({ user: { id, email: user.email } });
+    expect(me.body).toEqual({ user: { id, email: user.email, role: "customer" } });
     expect(JSON.stringify(response.body).includes(user.password_hash)).toBe(false);
+  });
+
+  it("derives support role from persistence, not the login request", async () => {
+    user = { ...user, role: "support" };
+    const login = await request(app).post("/api/auth/login").send({ email: user.email, password: "synthetic-password", role: "customer" });
+    expect(login.status).toBe(200);
+    const me = await request(app).get("/api/auth/me").auth(login.body.token, { type: "bearer" });
+    expect(me.body.user.role).toBe("support");
   });
 
   it.each(["demo@example.test", "unknown@example.test"])("uses generic failures and password verification for %s", async (email) => {

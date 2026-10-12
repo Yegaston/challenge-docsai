@@ -14,6 +14,23 @@ export function validateSeed(emailValue: unknown, password: unknown) {
   return { email, password };
 }
 
+export function validateSupportSeed(emailValue: unknown, password: unknown) {
+  if (emailValue === undefined && password === undefined) return undefined;
+  const email = normalizeEmail(emailValue);
+  if (!email || typeof password !== "string" || password.length < 12 || password.length > 256) {
+    throw new Error("SUPPORT_EMAIL and SUPPORT_PASSWORD must both be configured (12–256 character password).");
+  }
+  return { email, password };
+}
+
+export async function seedSupportUser(
+  repository: UserSeedRepository, emailValue: unknown, passwordValue: unknown,
+  dependencies: { hash(password: string): Promise<string>; id(): string },
+) {
+  const seed = validateSupportSeed(emailValue, passwordValue);
+  if (seed) await repository.insert({ id: dependencies.id(), email: seed.email, password_hash: await dependencies.hash(seed.password), role: "support" });
+}
+
 export async function seedDemoUser(
   repository: UserSeedRepository, emailValue: unknown, passwordValue: unknown,
   dependencies: { hash(password: string): Promise<string>; id(): string },
