@@ -22,7 +22,7 @@ describe("demo persistence", () => {
   it("runs schema before a parameterized conflict-safe seed, preserving the first identity/hash", async () => {
     let stored: { id: string; email: string; password_hash: string } | undefined;
     const query = vi.fn(async (sql: string, values?: unknown[]) => {
-      if (sql.startsWith("INSERT")) {
+      if (sql.startsWith("INSERT INTO users")) {
         expect(sql).toContain("ON CONFLICT (email) DO NOTHING");
         expect(sql).not.toContain("demo@example.test");
         if (!stored) stored = { id: values![0] as string, email: values![1] as string, password_hash: values![2] as string };
@@ -34,7 +34,7 @@ describe("demo persistence", () => {
     await seedDemoUser({ query }, "demo@example.test", "changed-password");
     expect(query.mock.calls[0][0]).toContain("CREATE TABLE IF NOT EXISTS users");
     const schemas = query.mock.calls.filter(([sql]) => sql.includes("CREATE TABLE"));
-    expect(schemas).toHaveLength(14);
+    expect(schemas).toHaveLength(18);
     expect(query.mock.calls.filter(([sql]) => sql.includes("audit_report_shape"))).toHaveLength(6);
     expect(schemas[1][0]).toContain("CREATE TABLE IF NOT EXISTS tickets");
     expect(schemas[2][0]).toContain("CREATE TABLE IF NOT EXISTS analyses");
@@ -42,7 +42,7 @@ describe("demo persistence", () => {
     expect(schemas[4][0]).toContain("CREATE TABLE IF NOT EXISTS wrong_answer_reports");
     expect(schemas[5][0]).toContain("CREATE TABLE IF NOT EXISTS report_corrections");
     expect(schemas[6][0]).toContain("CREATE TABLE IF NOT EXISTS conversations");
-    for (let index = 0; index < 7; index++) expect(schemas[index + 7][0]).toBe(schemas[index][0]);
+    for (let index = 0; index < 9; index++) expect(schemas[index + 9][0]).toBe(schemas[index][0]);
     expect(schemas[6][0]).toContain("ADD COLUMN IF NOT EXISTS role");
     expect(schemas[6][0]).toContain("CREATE TABLE IF NOT EXISTS conversation_messages");
     expect(stored === original).toBe(true);

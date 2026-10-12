@@ -1,4 +1,6 @@
 import { Pool } from "pg";
+import { createTransferAgent, createTransferProvider } from "./modules/conversations/services/transfer-agent.js";
+import { createTransfers } from "./modules/transfers/transfers.js";
 import { createConversations } from "./modules/conversations/repositories/conversations.repository.js";
 import { createConversationsService } from "./modules/conversations/services/conversations.service.js";
 import { createConversationsRouter } from "./modules/conversations/http/controller.js";
@@ -50,7 +52,7 @@ let stopConversationRetention: (() => Promise<void>) | undefined;
 try {
   const authService = await createAuthService({ users: createUsers(pool), secret: process.env.JWT_SECRET });
   auth = createAuthRouter(authService);
-  conversations = createConversationsRouter(createConversationsService(createConversations(pool)), authService);
+  conversations = createConversationsRouter(createConversationsService(createConversations(pool), createTransferAgent(createTransferProvider(process.env.OPENROUTER_API_KEY, process.env.OPENROUTER_MODEL), createTransfers(pool))), authService);
   const ticketsService = createTicketsService(createTickets(pool));
   const audit = createAuditService(createAuditRepository(pool));
   const analyses = createAnalysesService(createAnalyses(pool), ticketsService, createAnalysisProvider({

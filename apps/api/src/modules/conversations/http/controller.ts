@@ -11,6 +11,13 @@ export function createConversationsRouter(service: ConversationsService, auth: A
     try { response.status(201).json(await service.create(response.locals.user, request.body)); }
     catch (error) { sendError(response, error); }
   });
+  router.post("/:id/messages", express.json({ limit: "4kb", inflate: false }), async (request, response) => {
+    try {
+      const body = request.body;
+      if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some(key => key !== "text" && key !== "idempotencyKey")) throw new ConversationError("invalid");
+      response.status(201).json(await service.reply(response.locals.user, request.params.id as string, body.text, body.idempotencyKey));
+    } catch (error) { sendError(response, error); }
+  });
   router.get("/", async (_request, response) => {
     try { response.json({ conversations: await service.list(response.locals.user) }); }
     catch (error) { sendError(response, error); }
@@ -20,13 +27,13 @@ export function createConversationsRouter(service: ConversationsService, auth: A
     catch (error) { sendError(response, error); }
   });
   router.use(((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
-    response.status(400).json({ error: "Invalid conversation request." });
+    response.status(error instanceof Error && "type" in error && error.type === "entity.too.large" ? 413 : 400).json({ error: "Invalid conversation request." });
   }) as express.ErrorRequestHandler);
   return router;
 }
 
 function sendError(response: express.Response, error: unknown) {
   if (error instanceof ConversationError) {
-    response.status(error.kind === "invalid" ? 400 : error.kind === "forbidden" ? 403 : 404).json({ error: error.kind });
+    response.status(error.kind === "invalid" ? 400 : error.kind === "forbidden" ? 403 : error.kind === "busy" ? 429 : error.kind === "unavailable" ? 503 : error.kind === "outcome_unknown" ? 409 : 404).json({ error: error.kind, ...(error.kind === "outcome_unknown" ? { instruction: "Refresh the conversation; submit a new explicit request if needed. The previous provider call may have been billed." } : {}) });
   } else response.status(503).json({ error: "Conversation unavailable." });
 }

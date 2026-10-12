@@ -1,10 +1,21 @@
 import { expect, it, vi } from "vitest";
+import { readFile } from "node:fs/promises";
 import request from "supertest";
 import { createApp } from "../src/app.js";
 import { createConversationsRouter } from "../src/modules/conversations/http/controller.js";
 import { createConversations } from "../src/modules/conversations/repositories/conversations.repository.js";
 import { validateSupportSeed } from "../src/modules/users/services/users.service.js";
 import { createConversationsService } from "../src/modules/conversations/services/conversations.service.js";
+
+it("replays a claim-state migration that permits outcome_unknown on existing and fresh claims", async () => {
+  const migration = await readFile(new URL("../migrations/014-chat-claim-state.sql", import.meta.url), "utf8");
+  const initial = await readFile(new URL("../migrations/012-chat-idempotency.sql", import.meta.url), "utf8");
+  const startup = await readFile(new URL("../src/infrastructure/initialize-users.ts", import.meta.url), "utf8");
+  expect(initial).toContain("'pending', 'done', 'failed'");
+  expect(migration).toMatch(/DROP CONSTRAINT IF EXISTS chat_send_claims_state_check/);
+  expect(migration).toMatch(/ADD CONSTRAINT chat_send_claims_state_check[\s\S]*'outcome_unknown'/);
+  expect(startup).toContain('"014-chat-claim-state.sql"');
+});
 
 const customer = { id: "00000000-0000-4000-8000-000000000001", role: "customer" as const };
 const other = { id: "00000000-0000-4000-8000-000000000002", role: "customer" as const };
@@ -17,6 +28,7 @@ it("creates customer-owned conversations and hides un-escalated threads from sup
     list: vi.fn(async (id, role) => rows.filter((row) => role === "support" ? row.status === "escalated" : row.owner_id === id)),
     byId: vi.fn(async (id, owner, role) => rows.find((row) => row.id === id && (role === "support" ? row.status === "escalated" : row.owner_id === owner))),
     messages: vi.fn(async () => []),
+    append: vi.fn(async () => {}),
   };
   const service = createConversationsService(repository);
   const created = await service.create(customer, { text: "Where is my transfer?", role: "support" });
@@ -36,6 +48,7 @@ it("authenticates both roles and denies cross-owner and un-escalated support acc
     list: vi.fn(async (owner: string, role: string) => role === "customer" && owner === customer.id ? [thread] : []),
     byId: vi.fn(async (id: string, owner: string, role: string) => id === thread.id && (role === "support" ? thread.status === "escalated" : owner === customer.id) ? thread : undefined),
     messages: vi.fn(async () => []),
+    append: vi.fn(async () => {}),
   };
   const auth = { identity: vi.fn(async (token: string) => {
     if (token === "customer") return customer;
@@ -52,6 +65,73 @@ it("authenticates both roles and denies cross-owner and un-escalated support acc
   thread.status = "escalated";
   expect((await request(app).get(`/api/conversations/${thread.id}`).auth("support", { type: "bearer" })).status).toBe(200);
   expect(repository.messages).toHaveBeenCalledTimes(2);
+});
+
+it("returns HTTP 413 for oversized conversation JSON", async () => {
+  const auth = { identity: vi.fn(async () => customer) };
+  const service = createConversationsService({} as any);
+  const app = createApp(async () => {}, undefined, undefined, createConversationsRouter(service, auth as any));
+  const response = await request(app).post("/api/conversations").auth("customer", { type: "bearer" }).send({ text: "x".repeat(25000) });
+  expect(response.status).toBe(413);
+});
+
+it("returns outcome_unknown for stale pending claims without rerunning the agent", async () => {
+  const row = { id: customer.id, owner_id: customer.id, status: "open" as const, created_at: new Date() };
+  const run = vi.fn();
+  const repository = { byId: vi.fn(async () => row), admit: vi.fn(async () => "duplicate" as const), completed: vi.fn(async () => ({ state: "outcome_unknown", response: null })) };
+  await expect(createConversationsService(repository as any, { run } as any).reply(customer, row.id, "where?", other.id)).rejects.toThrow("outcome_unknown");
+  expect(run).not.toHaveBeenCalled();
+});
+
+it("rejects rate-limited creates before writing any conversation", async () => {
+  const repository = { admit: vi.fn(async () => "busy"), insert: vi.fn(), byId: vi.fn() };
+  await expect(createConversationsService(repository as any, { run: vi.fn() } as any).create(customer, { text: "where?", idempotencyKey: other.id })).rejects.toThrow("busy");
+  expect(repository.insert).not.toHaveBeenCalled();
+  expect(repository.admit).toHaveBeenCalledOnce();
+});
+
+it("replays a completed send without invoking the provider twice and rejects changed payloads", async () => {
+  const row = { id: customer.id, owner_id: customer.id, status: "open" as const, created_at: new Date() };
+  let state: "new" | "duplicate" | "conflict" = "new";
+  const repository = {
+    insert: vi.fn(), list: vi.fn(), byId: vi.fn(async () => row), messages: vi.fn(async () => []), append: vi.fn(async () => {}),
+    admit: vi.fn(async (_owner: string, _id: string, _key: string, text: string) => state === "duplicate" && text !== "where?" ? "conflict" as const : state),
+    completed: vi.fn(async () => ({ state: "done", response: { text: "verified" } })),
+    finish: vi.fn(async () => {}), complete: vi.fn(async () => {}), throttle: vi.fn(async () => true),
+  };
+  const run = vi.fn(async () => ({ text: "verified", activity: [] }));
+  const service = createConversationsService(repository as any, { run } as any);
+  expect(await service.reply(customer, row.id, "where?", other.id)).toEqual({ text: "verified" });
+  state = "duplicate";
+  expect(await service.reply(customer, row.id, "where?", other.id)).toEqual({ text: "verified" });
+  expect(run).toHaveBeenCalledTimes(1);
+  await expect(service.reply(customer, row.id, "different", other.id)).rejects.toThrow("invalid");
+});
+
+it("admits under an owner row lock and rolls back a throttled create without a claim or message", async () => {
+  const statements: string[] = [];
+  const client = { query: vi.fn(async (sql: string) => {
+    statements.push(sql);
+    return { rows: sql.includes("UPDATE chat_send_limits") ? [] : [] };
+  }), release: vi.fn() };
+  const repository = createConversations({ query: vi.fn(), connect: vi.fn(async () => client) } as any);
+  expect(await repository.admit!(customer.id, customer.id, other.id, "question", { id: customer.id, owner_id: customer.id, status: "open", created_at: new Date() })).toBe("busy");
+  expect(statements).toContain("SELECT owner_id FROM chat_send_limits WHERE owner_id=$1 FOR UPDATE");
+  expect(statements).toContain("ROLLBACK");
+  expect(statements.some(sql => sql.startsWith("INSERT INTO conversations"))).toBe(false);
+  expect(statements.some(sql => sql.startsWith("INSERT INTO chat_send_claims"))).toBe(false);
+  expect(statements.some(sql => sql.startsWith("INSERT INTO conversation_messages"))).toBe(false);
+});
+
+it("reuses a duplicate claim before touching the rate budget", async () => {
+  const statements: string[] = [];
+  const client = { query: vi.fn(async (sql: string) => {
+    statements.push(sql);
+    return { rows: sql.startsWith("SELECT request_hash") ? [{ request_hash: (await import("node:crypto")).createHash("sha256").update("question").digest("hex") }] : [] };
+  }), release: vi.fn() };
+  const repository = createConversations({ query: vi.fn(), connect: vi.fn(async () => client) } as any);
+  expect(await repository.admit!(customer.id, customer.id, other.id, "question")).toBe("duplicate");
+  expect(statements.some(sql => sql.startsWith("UPDATE chat_send_limits"))).toBe(false);
 });
 
 it("rejects partial support seed configuration and scopes repository reads before retrieving messages", async () => {

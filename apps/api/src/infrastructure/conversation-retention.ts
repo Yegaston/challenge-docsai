@@ -9,6 +9,7 @@ export function createConversationRetention(database: Pick<Pool, "query">) {
         ORDER BY created_at, id LIMIT 100 FOR UPDATE SKIP LOCKED
       ), removed AS (DELETE FROM conversations WHERE id IN (SELECT id FROM batch) RETURNING id)
       SELECT count(*)::text AS count FROM removed`);
+      await database.query("DELETE FROM chat_send_limits WHERE owner_id IN (SELECT owner_id FROM chat_send_limits WHERE last_at < clock_timestamp() - interval '90 days' ORDER BY last_at LIMIT 100 FOR UPDATE SKIP LOCKED)");
       const backlog = await database.query(`SELECT count(*)::text AS count FROM conversations
         WHERE created_at < clock_timestamp() - interval '90 days'`);
       return { deleted: Number(deleted.rows[0].count), backlog: Number(backlog.rows[0].count) };
