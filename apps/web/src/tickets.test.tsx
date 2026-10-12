@@ -9,7 +9,7 @@ import {
 afterEach(() => { cleanup(); window.history.replaceState(null, "", "/"); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 async function login(routes: Routes = {}) {
-  const fetchMock = mockApi({ ...baseRoutes(), "/api/tickets": emptyTickets, ...routes });
+  const fetchMock = mockApi({ ...baseRoutes(), "/api/tickets": emptyTickets, "/api/tickets/t1/reports": () => json({ reports: [] }), ...routes });
   render(<App />);
   submitLogin();
   await screen.findByText("demo@example.test");
@@ -555,6 +555,144 @@ describe("ticket detail", () => {
     expect((await screen.findByRole("alert")).textContent).toMatch(/server may still be processing/i);
     expect(screen.queryByRole("button", { name: "Refine analysis" })).toBeNull();
     expect(screen.getByRole("link", { name: "Back to tickets" })).toBeTruthy();
+  });
+});
+
+describe("wrong-answer same-user demonstration", () => {
+  const report = { id: "r1", ticketId: "t1", analysisId: "old", explanation: "<b>wrong</b>", status: "open", createdAt: "2026-01-01T00:00:00Z", reviewMode: "same_user_demo" };
+  const correction = { id: "c1", reportId: "r1", analysisId: "old", correction: "<img src=x onerror=alert(1)>", createdAt: "2026-01-02T00:00:00Z", reviewMode: "same_user_demo" };
+  const route = "/api/tickets/t1/reports";
+  async function open(routes: Routes) {
+    const fetchMock = await login({
+      "/api/tickets": () => ticketsResponse([ticketSummary("t1")]),
+      "/api/tickets/t1": () => detailResponse("t1", [succeededAnalysis({ id: "old", summary: "Original" }), succeededAnalysis({ id: "new", summary: "Latest" }), failedAnalysis("timeout", { id: "bad" })]),
+      [route]: () => json({ reports: [] }), ...routes,
+    });
+    fireEvent.click(screen.getByRole("link", { name: /Ticket t1/ }));
+    await screen.findByText("Original");
+    return fetchMock;
+  }
+  it("binds an earlier succeeded version, preserves the original and renders report/history as text", async () => {
+    let saved = false;
+    const fetchMock = await open({
+      [route]: () => json({ reports: saved ? [{ ...report, status: "reviewed" }] : [] }),
+      [`POST /api/tickets/t1/analyses/old/reports`]: () => { saved = true; return json({ report }, 201); },
+      [`${route}/r1/corrections`]: () => json({ corrections: [correction] }),
+    });
+    expect(screen.getAllByRole("button", { name: "Report wrong answer" })).toHaveLength(2);
+    fireEvent.click(screen.getAllByRole("button", { name: "Report wrong answer" })[1]);
+    fireEvent.change(screen.getByLabelText("Why is this answer wrong?"), { target: { value: "Wrong old answer" } });
+    fireEvent.click(screen.getByRole("button", { name: "Submit report" }));
+    await screen.findByText(/<b>wrong<\/b>/);
+    expect((postCall(fetchMock, "/api/tickets/t1/analyses/old/reports")?.[1] as RequestInit).body).toBe(JSON.stringify({ explanation: "Wrong old answer" }));
+    expect(screen.getByText("Original")).toBeTruthy();
+    expect(screen.getByText(/not independent review/i)).toBeTruthy();
+    expect(await screen.findByText(/<img src=x onerror=alert\(1\)>/)).toBeTruthy();
+    expect(screen.getByText(/reviewed/i)).toBeTruthy();
+    expect(document.querySelector("img, b")).toBeNull();
+  });
+  it("reconciles an ambiguous report write before offering another write", async () => {
+    let reads = 0;
+    const fetchMock = await open({
+      [route]: () => json({ reports: ++reads > 1 ? [report] : [] }),
+      [`POST /api/tickets/t1/analyses/old/reports`]: () => Promise.reject(new Error("offline")),
+      [`${route}/r1/corrections`]: () => json({ corrections: [] }),
+    });
+    fireEvent.click(screen.getAllByRole("button", { name: "Report wrong answer" })[1]);
+    fireEvent.change(screen.getByLabelText("Why is this answer wrong?"), { target: { value: "Wrong" } });
+    fireEvent.click(screen.getByRole("button", { name: "Submit report" }));
+    expect(await screen.findByText(/<b>wrong<\/b>/)).toBeTruthy();
+    expect(fetchMock.mock.calls.filter(([url, init]) => url === "/api/tickets/t1/analyses/old/reports" && init?.method === "POST")).toHaveLength(1);
+  });
+  it("disables correction and offers retry when report-list refresh fails after history loaded", async () => {
+    let reads = 0;
+    const fetchMock = await open({
+      [route]: () => ++reads === 1 ? json({ reports: [report] }) : json({}, 503),
+      [`${route}/r1/corrections`]: () => json({ corrections: [correction] }),
+    });
+    fireEvent.click(screen.getAllByRole("button", { name: "Report wrong answer" })[1]);
+    await screen.findByText(/<img src=x onerror/);
+    fireEvent.click(screen.getByRole("button", { name: "Refresh reports and history" }));
+    await screen.findByRole("alert");
+    expect(screen.getByRole("button", { name: "Append correction" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.submit(screen.getByLabelText("Add same-user correction").closest("form")!);
+    expect(postCall(fetchMock, `${route}/r1/corrections`)).toBeUndefined();
+    expect(screen.getByRole("button", { name: "Refresh reports and history" })).toBeTruthy();
+  });
+  it("labels an ambiguous report as a report after reconciliation", async () => {
+    let reads = 0;
+    await open({
+      [route]: () => json({ reports: ++reads > 1 ? [report] : [] }),
+      [`POST /api/tickets/t1/analyses/old/reports`]: () => Promise.reject(new Error("offline")),
+      [`${route}/r1/corrections`]: () => json({ corrections: [] }),
+    });
+    fireEvent.click(screen.getAllByRole("button", { name: "Report wrong answer" })[1]);
+    fireEvent.change(screen.getByLabelText("Why is this answer wrong?"), { target: { value: "Wrong" } });
+    fireEvent.click(screen.getByRole("button", { name: "Submit report" }));
+    await screen.findByText(/<b>wrong<\/b>/);
+    expect(screen.getByRole("status").textContent).toMatch(/Report outcome uncertain/);
+    expect(screen.getByRole("status").textContent).not.toMatch(/Correction outcome uncertain/);
+  });
+  it("locks only the affected report after an ambiguous correction, even after reselect and refresh", async () => {
+    const fetchMock = await open({
+      [route]: () => json({ reports: [report, { ...report, id: "r2", analysisId: "new" }] }),
+      [`${route}/r1/corrections`]: () => json({ corrections: [] }),
+      [`${route}/r2/corrections`]: () => json({ corrections: [] }),
+      [`POST ${route}/r1/corrections`]: () => Promise.reject(new Error("offline")),
+    });
+    fireEvent.click(screen.getAllByRole("button", { name: "Report wrong answer" })[1]);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Append correction" }).hasAttribute("disabled")).toBe(false));
+    fireEvent.change(screen.getByLabelText("Add same-user correction"), { target: { value: "First" } });
+    fireEvent.click(screen.getByRole("button", { name: "Append correction" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Append correction" }).hasAttribute("disabled")).toBe(true));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh reports and history" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Report wrong answer" })[0]);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Append correction" }).hasAttribute("disabled")).toBe(false));
+    fireEvent.click(screen.getAllByRole("button", { name: "Report wrong answer" })[1]);
+    fireEvent.change(screen.getByLabelText("Add same-user correction"), { target: { value: "Duplicate" } });
+    fireEvent.submit(screen.getByLabelText("Add same-user correction").closest("form")!);
+    expect(screen.getByRole("button", { name: "Append correction" }).hasAttribute("disabled")).toBe(true);
+    expect(fetchMock.mock.calls.filter(([url, init]) => url === `${route}/r1/corrections` && init?.method === "POST")).toHaveLength(1);
+  });
+  it("hides prior history and blocks submission while the newly selected report loads", async () => {
+    const next = deferred<Response>();
+    const fetchMock = await open({
+      [route]: () => json({ reports: [report, { ...report, id: "r2", analysisId: "new" }] }),
+      [`${route}/r1/corrections`]: () => json({ corrections: [correction] }),
+      [`${route}/r2/corrections`]: () => next.promise,
+    });
+    fireEvent.click(screen.getAllByRole("button", { name: "Report wrong answer" })[1]);
+    await screen.findByText(/<img src=x onerror/);
+    fireEvent.click(screen.getAllByRole("button", { name: "Report wrong answer" })[0]);
+    expect(screen.queryByText(/<img src=x onerror/)).toBeNull();
+    fireEvent.change(screen.getByLabelText("Add same-user correction"), { target: { value: "New" } });
+    fireEvent.submit(screen.getByLabelText("Add same-user correction").closest("form")!);
+    expect(screen.getByRole("button", { name: "Append correction" }).hasAttribute("disabled")).toBe(true);
+    expect(postCall(fetchMock, `${route}/r2/corrections`)).toBeUndefined();
+    await act(async () => next.resolve(json({ corrections: [] })));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Append correction" }).hasAttribute("disabled")).toBe(false));
+  });
+  it("clears the session on correction-history 401 without showing stale corrections", async () => {
+    const next = deferred<Response>();
+    await open({
+      [route]: () => json({ reports: [report, { ...report, id: "r2", analysisId: "new" }] }),
+      [`${route}/r1/corrections`]: () => json({ corrections: [correction] }),
+      [`${route}/r2/corrections`]: () => next.promise,
+    });
+    fireEvent.click(screen.getAllByRole("button", { name: "Report wrong answer" })[1]);
+    await screen.findByText(/<img src=x onerror/);
+    fireEvent.click(screen.getAllByRole("button", { name: "Report wrong answer" })[0]);
+    expect(screen.queryByText(/<img src=x onerror/)).toBeNull();
+    await act(async () => next.resolve(json({}, 401)));
+    expect(await screen.findByText("Session invalid or expired. Log in again.")).toBeTruthy();
+  });
+  it.each([404, 409, 503])("shows safe report error %i and retains input", async (status) => {
+    await open({ [`POST /api/tickets/t1/analyses/old/reports`]: () => json({ error: "internal detail" }, status) });
+    fireEvent.click(screen.getAllByRole("button", { name: "Report wrong answer" })[1]);
+    fireEvent.change(screen.getByLabelText("Why is this answer wrong?"), { target: { value: "Keep me" } });
+    fireEvent.click(screen.getByRole("button", { name: "Submit report" }));
+    expect((await screen.findByRole("alert")).textContent).not.toContain("internal detail");
+    expect((screen.getByLabelText("Why is this answer wrong?") as HTMLTextAreaElement).value).toBe("Keep me");
   });
 });
 
