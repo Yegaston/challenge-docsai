@@ -13,6 +13,7 @@ async function login(routes: Routes = {}) {
   render(<App />);
   submitLogin();
   await screen.findByText("demo@example.test");
+  fireEvent.click(screen.getByRole("link", { name: "Tickets" }));
   await waitFor(() => expect(screen.queryByText("Loading tickets…")).toBeNull());
   return fetchMock;
 }
@@ -78,6 +79,7 @@ describe("ticket history", () => {
     render(<App />);
     await act(async () => { submitLogin(); });
     expect(screen.getByText("demo@example.test")).toBeTruthy();
+    fireEvent.click(screen.getByRole("link", { name: "Tickets" }));
     const historyCall = call(fetchMock, "/api/tickets");
     await act(async () => { vi.advanceTimersByTime(1000); });
     expect(screen.getByText("Session expired. Log in again.")).toBeTruthy();

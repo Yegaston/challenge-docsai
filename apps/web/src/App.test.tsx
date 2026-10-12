@@ -119,7 +119,7 @@ describe("login page", () => {
     const fetchMock = mockApi({
       "/api/health": healthy,
       "/api/auth/login": [sessionResponse, sessionResponse],
-      "/api/auth/me": [() => firstMe.promise, () => json({ user: { id: "new-id", email: "new@example.test" } })],
+      "/api/auth/me": [() => firstMe.promise, () => json({ user: { id: "new-id", email: "new@example.test", role: "customer" } })],
       "/api/tickets": emptyTickets,
     });
     vi.useFakeTimers();

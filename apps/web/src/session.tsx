@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 
-export type Session = { token: string; expiresAt: number; user?: { id: string; email: string } };
+export type Session = { token: string; expiresAt: number; user?: { id: string; email: string; role: "customer" | "support" } };
 export const sessionInvalidMessage = "Session invalid or expired. Log in again.";
 export const sessionExpiredMessage = "Session expired. Log in again.";
 type Credentials = { email: string; password: string };
@@ -84,8 +84,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const user = await identity.json();
       if (!live()) return;
       if (next.expiresAt <= Date.now()) { clear(sessionExpiredMessage); return; }
-      if (typeof user?.user?.id !== "string" || typeof user?.user?.email !== "string") throw new Error("Invalid identity response");
-      setSession({ ...next, user: { id: user.user.id, email: user.user.email } });
+      if (typeof user?.user?.id !== "string" || typeof user?.user?.email !== "string" || !["customer", "support"].includes(user?.user?.role)) throw new Error("Invalid identity response");
+      setSession({ ...next, user: { id: user.user.id, email: user.user.email, role: user.user.role } });
     } catch {
       if (live()) setError("Unable to reach authentication service. Try again.");
     } finally {

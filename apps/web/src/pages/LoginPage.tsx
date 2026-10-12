@@ -17,7 +17,7 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const [health, setHealth] = useState<Health>("checking");
   const [attempt, setAttempt] = useState(0);
-  useEffect(() => { if (session) navigate("/tickets", { replace: true }); }, [session, navigate]);
+  useEffect(() => { if (session) navigate(session.user?.role === "support" ? "/support" : "/chat", { replace: true }); }, [session, navigate]);
   useEffect(() => {
     const controller = new AbortController();
     let active = true;

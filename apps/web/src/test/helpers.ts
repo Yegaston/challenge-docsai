@@ -4,7 +4,7 @@ import { vi } from "vitest";
 export const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 export const healthy = () => json({ status: "ok", database: "reachable" });
 export const sessionResponse = (offset = 900_000) => json({ token: "synthetic-token", expiresAt: Date.now() + offset });
-export const identity = () => json({ user: { id: "persistent-id", email: "demo@example.test" } });
+export const identity = () => json({ user: { id: "persistent-id", email: "demo@example.test", role: "customer" } });
 
 export type Responder = () => Response | Promise<Response>;
 export type Routes = Record<string, Responder | Responder[]>;
