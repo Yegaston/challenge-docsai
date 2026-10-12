@@ -15,8 +15,8 @@ function ProtectedPages({ role }: { role: "customer" | "support" }) {
   const navigate = useNavigate();
   if (!session) return <Navigate to="/login" replace />;
   if (session.user?.role !== role) return <Navigate to={session.user?.role === "support" ? "/support" : "/chat"} replace />;
-  return <main className="mx-auto min-h-screen max-w-2xl space-y-6 px-6 py-8">
-    <header className="flex flex-wrap items-center justify-between gap-3">
+  return <main className="mx-auto min-h-screen max-w-6xl space-y-6 px-4 py-6 md:px-8">
+    <header className="flex flex-wrap items-center justify-between gap-3 border-b pb-4">
       <h1 className="text-xl font-semibold">Support Ticket AI</h1>
       <nav aria-label="Account and tickets" className="flex flex-wrap items-center gap-4 text-sm">
         {role === "customer" ? <><Link to="/chat">Chat</Link><Link to="/tickets/new">New ticket</Link><Link to="/tickets">Tickets</Link></> : <Link to="/support">Support inbox</Link>}

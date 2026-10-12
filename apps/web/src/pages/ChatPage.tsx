@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { callApi } from "@/lib/api";
 import { sessionInvalidMessage, useSession } from "@/session";
 import type { Conversation } from "@/pages/ConversationPage";
+import { postChatStream } from "@/lib/chat-stream";
 
 export default function ChatPage() {
   const { session, clear } = useSession();
@@ -13,40 +14,50 @@ export default function ChatPage() {
   const [text, setText] = useState("");
   const [pending, setPending] = useState(false);
   const [uncertain, setUncertain] = useState(false);
+  const [activity, setActivity] = useState(""); const [provisional, setProvisional] = useState("");
   const attempt = useRef<{ text: string; key: string } | null>(null);
   const loadActive = useRef<AbortController | null>(null);
   const sendActive = useRef<AbortController | null>(null);
+  const sending = useRef(false);
   const load = useCallback(async (signal: AbortSignal) => {
     if (!token) return;
     const result = await callApi({ token }, "/api/conversations", { signal });
     if (signal.aborted) return;
     if (result.status === 401) clear(sessionInvalidMessage);
-    else if (result.status === 200 && Array.isArray(result.body?.conversations)) { setList(result.body.conversations as Conversation[]); setError(previous => previous.startsWith("Outcome uncertain") ? previous : ""); }
+    else if (result.status === 200 && Array.isArray(result.body?.conversations)) { setProvisional(""); setList(result.body.conversations as Conversation[]); setError(previous => previous.startsWith("Outcome uncertain") ? previous : ""); }
     else setError("Could not load conversations. Refresh to try again.");
   }, [token, clear]);
   useEffect(() => { const controller = new AbortController(); loadActive.current = controller; void load(controller.signal); return () => { controller.abort(); sendActive.current?.abort(); }; }, [load]);
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!token || !text.trim() || pending || uncertain) return;
+    if (!token || !text.trim() || sending.current || pending || uncertain) return;
     const current = { text: text.trim(), key: crypto.randomUUID() }; attempt.current = current;
     await create(current);
   }
   async function create(current: { text: string; key: string }) {
-    if (!token || pending) return;
+    if (!token || sending.current || pending) return;
+    sending.current = true;
     setPending(true); setError("");
     const controller = new AbortController(); sendActive.current = controller;
-    const result = await callApi({ token }, "/api/conversations", { method: "POST", body: { text: current.text, idempotencyKey: current.key }, signal: controller.signal });
+    setActivity("Checking transfer details…"); setProvisional("");
+    const result = await postChatStream(token, "/api/conversations/stream", { text: current.text, idempotencyKey: current.key }, controller.signal, event => {
+      if (event.event === "status") setActivity("Checking transfer details…");
+      if (event.event === "delta") { setActivity(""); setProvisional(previous => previous + event.text); }
+    });
     if (controller.signal.aborted) return;
-    setPending(false);
-    if (result.status === 401) { clear(sessionInvalidMessage); return; }
-    if (result.body?.id && typeof result.body.id === "string") { attempt.current = null; navigate(`/chat/${result.body.id}`); return; }
-    if (result.status === 0 || result.status === 503 || result.status === 409) { setUncertain(true); setError("Outcome uncertain. Refresh the list to reconcile or retry the same request. Do not resend automatically."); }
-    else { attempt.current = null; setError("Could not start chat. Check your question and try again."); }
+    sending.current = false;
+    setPending(false); setActivity(result.kind === "done" ? "Response ready." : "");
+    if (result.kind === "unauthorized") { clear(sessionInvalidMessage); return; }
+    if (result.kind === "done") { attempt.current = null; navigate(`/chat/${result.data.id}`); return; }
+    if (result.kind === "uncertain") { setUncertain(true); setError(result.instruction); }
+    else { attempt.current = null; setError(result.instruction); }
   }
-  return <section className="space-y-5"><h2 className="text-2xl font-semibold">Your conversations</h2>
-    <form onSubmit={submit} className="space-y-2"><label htmlFor="question">How can we help with your transfer?</label><textarea id="question" className="w-full rounded border p-3" maxLength={2000} value={text} onChange={e => setText(e.target.value)} disabled={pending || uncertain} required /><button className="rounded border px-3 py-2" disabled={pending || uncertain}>{pending ? "Starting…" : "Start chat"}</button></form>
+  return <section className="chat-layout"><aside className="chat-sidebar"><h2 className="text-lg font-semibold">Your conversations</h2><p className="text-sm text-slate-600">Past chats</p>{list === null ? <p role="status">Loading conversations…</p> : list.length === 0 ? <p>No conversations yet. Ask a question to begin.</p> : <ul className="space-y-2">{list.map(row => <li key={row.id}><Link className="underline" to={`/chat/${row.id}`}>Conversation {new Date(row.createdAt).toLocaleString()} — {row.status}</Link></li>)}</ul>}</aside><div className="flex min-h-full flex-col justify-between gap-6"><div><h2 className="text-2xl font-semibold">New chat</h2><p className="text-slate-600">Ask about a transfer. We will check available details before answering.</p>
+    </div><form onSubmit={submit} className="chat-composer space-y-2"><label htmlFor="question">How can we help with your transfer?</label><textarea id="question" className="w-full rounded border p-3" maxLength={2000} value={text} onChange={e => setText(e.target.value)} disabled={pending || uncertain} required /><button className="rounded border px-3 py-2" disabled={pending || uncertain}>{pending ? "Starting…" : "Start chat"}</button></form>
+    {attempt.current && <div className="chat-bubble customer">{attempt.current.text}</div>}
+    {activity && <p role="status" aria-live="polite">{activity}</p>}
+    {provisional && <div className="chat-bubble agent" aria-live="off">{provisional}</div>}
     {error && <p role="alert">{error}</p>}
-    {uncertain && <><button className="rounded border px-3 py-2" onClick={() => { const controller = new AbortController(); loadActive.current?.abort(); loadActive.current = controller; void load(controller.signal); }}>Refresh conversations</button> <button className="rounded border px-3 py-2" disabled={pending} onClick={() => { if (attempt.current) void create(attempt.current); }}>Retry same request</button> <button className="rounded border px-3 py-2" onClick={() => { attempt.current = null; setUncertain(false); setError(""); }}>Start a new action (previous outcome may have succeeded)</button></>}
-    {list === null ? <p role="status">Loading conversations…</p> : list.length === 0 ? <p>No conversations yet. Ask a question above to begin.</p> : <ul className="space-y-2">{list.map(row => <li key={row.id}><Link className="underline" to={`/chat/${row.id}`}>Conversation {new Date(row.createdAt).toLocaleString()} — {row.status}</Link></li>)}</ul>}
-  </section>;
+    {uncertain && <><button className="rounded border px-3 py-2" onClick={() => { const controller = new AbortController(); loadActive.current?.abort(); loadActive.current = controller; void load(controller.signal); }}>Refresh conversations</button> <button className="rounded border px-3 py-2" disabled={pending} onClick={() => { if (attempt.current) void create(attempt.current); }}>Retry same request</button> <button className="rounded border px-3 py-2" disabled={pending} onClick={() => { if (sending.current) return; attempt.current = null; setUncertain(false); setError(""); }}>Start a new action (previous outcome may have succeeded)</button></>}
+    </div></section>;
 }

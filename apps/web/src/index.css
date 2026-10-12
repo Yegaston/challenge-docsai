@@ -1,6 +1,18 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+.chat-bubble { max-width: min(85%, 42rem); padding: 0.85rem 1.1rem; border-radius: 1.1rem; margin-block: 0.6rem; overflow-wrap: anywhere; background: #f1f5f9; color: #172033; }
+.chat-bubble.customer { margin-left: auto; background: #dbeafe; }
+.chat-bubble.agent { margin-right: auto; }
+.chat-bubble small { display: block; opacity: .7; margin-top: .4rem; }
+.chat-bubble button:focus-visible, textarea:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+@media (max-width: 640px) { .chat-bubble { max-width: 94%; } }
+.chat-layout { display: grid; gap: 1.5rem; min-height: calc(100dvh - 9rem); }
+@media (min-width: 768px) { .chat-layout { grid-template-columns: minmax(12rem, 15rem) minmax(0, 1fr); } }
+.chat-sidebar { padding: 1rem; background: #f8fafc; border-radius: 1rem; }
+.chat-composer { position: sticky; bottom: 0; padding: 1rem 0; background: var(--background); }
+.chat-bubble.tool { background: #f8fafc; font-size: .875rem; border: 1px solid #e2e8f0; }
+@media (prefers-reduced-motion: reduce) { .chat-bubble { scroll-behavior: auto; transition: none; } }
 :root {
   --background: oklch(0.985 0 0);
   --foreground: oklch(0.145 0 0);

@@ -12,5 +12,5 @@ export default defineConfig({
     proxy: { "/api": process.env.API_PROXY_TARGET ?? "http://127.0.0.1:3001" },
     watch: { usePolling: process.env.WATCH_POLLING === "true" },
   },
-  test: { environment: "jsdom", include: ["src/**/*.test.tsx"] },
+  test: { environment: "jsdom", include: ["src/**/*.test.{ts,tsx}"] },
 });
