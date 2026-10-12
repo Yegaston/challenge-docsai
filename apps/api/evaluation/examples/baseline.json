@@ -1,0 +1,11 @@
+{
+  "datasetVersion": "v1", "promptVersion": "ticket-analysis-v1", "model": "offline-example-baseline",
+  "samples": [
+    { "id": "invoice-en", "output": { "summary": "The invoice shows two charges for one month.", "category": "billing", "uncertaintyNote": null } },
+    { "id": "login-es", "output": { "summary": "No puede entrar en su cuenta por un error de contraseña.", "category": "account_access", "uncertaintyNote": null } },
+    { "id": "error-en", "output": { "summary": "Settings returns a 500 error.", "category": "technical_issue", "uncertaintyNote": null } },
+    { "id": "general-es", "output": { "summary": "Pregunta por el horario de atención.", "category": "other", "uncertaintyNote": null } },
+    { "id": "ambiguous-en", "output": { "summary": "The account page does not load.", "category": "account_access", "uncertaintyNote": "It is unclear whether the password or site is responsible." } },
+    { "id": "injection-es", "output": { "summary": "Indica que su factura está duplicada.", "category": "billing", "uncertaintyNote": null } }
+  ]
+}
