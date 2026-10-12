@@ -1,78 +1,86 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import {
+  baseRoutes, deferred, emptyTickets, healthy, identity, json, mockApi, sessionResponse, submitLogin,
+  type Routes,
+} from "./test/helpers";
 
-const healthy = () => Promise.resolve(new Response(JSON.stringify({ status: "ok", database: "reachable" })));
-const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
-const identity = { user: { id: "persistent-id", email: "demo@example.test" } };
-const session = () => ({ token: "synthetic-token", expiresAt: Date.now() + 900_000 });
+afterEach(() => { cleanup(); window.history.replaceState(null, "", "/"); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
-function mockAuth(...responses: Array<Response | Promise<Response>>) {
-  const auth = vi.fn();
-  responses.forEach((response) => auth.mockResolvedValueOnce(response));
-  const fetchMock = vi.fn((url: string, options?: RequestInit) => url === "/api/health" ? healthy() : auth(url, options));
-  vi.stubGlobal("fetch", fetchMock);
-  return auth;
+function call(fetchMock: ReturnType<typeof mockApi>, url: string) {
+  return fetchMock.mock.calls.find(([candidate]) => candidate === url);
 }
 
-function submitLogin() {
-  fireEvent.change(screen.getByLabelText("Email"), { target: { value: "demo@example.test" } });
-  fireEvent.change(screen.getByLabelText("Password"), { target: { value: "synthetic-password" } });
-  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
-}
-
-afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
-
-describe("demo authentication", () => {
+describe("login page", () => {
   it("logs in, sends a bearer protected request, keeps storage empty, and logs out", async () => {
-    const local = vi.spyOn(Storage.prototype, "setItem");
-    const auth = mockAuth(json(session()), json(identity));
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+    const getItem = vi.spyOn(Storage.prototype, "getItem");
+    const fetchMock = mockApi({ ...baseRoutes(), "/api/tickets": emptyTickets });
     render(<App />);
     submitLogin();
     await screen.findByText("demo@example.test");
-    expect(auth.mock.calls[1][0]).toBe("/api/auth/me");
-    expect(auth.mock.calls[1][1].headers.Authorization === "Bearer synthetic-token").toBe(true);
-    expect(local).not.toHaveBeenCalled();
+    const me = call(fetchMock, "/api/auth/me");
+    expect((me?.[1]?.headers as Record<string, string>)?.Authorization).toBe("Bearer synthetic-token");
+    expect(setItem).not.toHaveBeenCalled();
+    expect(getItem).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Log out" }));
-    expect(screen.getByRole("button", { name: "Log in" })).toBeTruthy();
+    await screen.findByRole("button", { name: "Log in" });
     expect(screen.queryByText("demo@example.test")).toBeNull();
     expect((screen.getByLabelText("Password") as HTMLInputElement).value).toBe("");
   });
 
   it("shows pending feedback and generic bad-credential errors", async () => {
-    let resolve!: (response: Response) => void;
-    mockAuth(new Promise((done) => { resolve = done; }));
+    const loginResponse = deferred<Response>();
+    mockApi({ ...baseRoutes(), "/api/auth/login": () => loginResponse.promise });
     render(<App />);
     submitLogin();
     expect(screen.getByText("Logging in…")).toBeTruthy();
     expect((screen.getByRole("button", { name: "Logging in…" }) as HTMLButtonElement).disabled).toBe(true);
-    await act(async () => resolve(json({}, 401)));
+    await act(async () => loginResponse.resolve(json({}, 401)));
     expect(screen.getByRole("alert").textContent).toBe("Invalid email or password.");
   });
 
   it.each(["network", "server", "malformed"])("handles %s login failures without entering a session", async (kind) => {
-    const auth = mockAuth();
-    if (kind === "network") auth.mockRejectedValue(new Error("offline"));
-    else auth.mockResolvedValue(kind === "server" ? json({}, 503) : json({}));
+    let reject!: (error: unknown) => void;
+    const failing = new Promise<Response>((_resolve, rej) => { reject = rej; });
+    const routes: Routes = {
+      ...baseRoutes(),
+      "/api/auth/login": () => kind === "network" ? failing : kind === "server" ? json({}, 503) : json({}),
+    };
+    mockApi(routes);
     render(<App />);
     submitLogin();
+    if (kind === "network") await act(async () => { reject(new Error("offline")); });
     await screen.findByRole("alert");
     expect(screen.queryByRole("button", { name: "Log out" })).toBeNull();
     expect((screen.getByRole("button", { name: "Log in" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
+  it.each(["server", "malformed"])('keeps protected routes closed when identity is %s', async (kind) => {
+    const fetchMock = mockApi({ ...baseRoutes(), "/api/auth/me": () => kind === "server" ? json({}, 503) : json({ user: {} }), "/api/tickets": emptyTickets });
+    render(<App />);
+    submitLogin();
+    await screen.findByRole("alert");
+    expect(screen.getByRole("alert").textContent).toMatch(/Try again/);
+    expect(screen.getByRole("button", { name: "Log in" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Log out" })).toBeNull();
+    expect(call(fetchMock, "/api/tickets")).toBeUndefined();
+  });
+
   it("resets a session rejected by the protected API", async () => {
-    mockAuth(json(session()), json({}, 401));
+    mockApi({ ...baseRoutes(), "/api/auth/me": () => json({}, 401), "/api/tickets": emptyTickets });
     render(<App />);
     submitLogin();
     await screen.findByText("Session invalid or expired. Log in again.");
     expect(screen.getByRole("button", { name: "Log in" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Log out" })).toBeNull();
   });
 
   it("expires locally at the server deadline without sleeping", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
-    mockAuth(json(session()), json(identity));
+    mockApi({ ...baseRoutes(), "/api/tickets": emptyTickets });
     render(<App />);
     await act(async () => { submitLogin(); });
     expect(screen.getByText("demo@example.test")).toBeTruthy();
@@ -81,44 +89,51 @@ describe("demo authentication", () => {
     expect(screen.getByRole("button", { name: "Log in" })).toBeTruthy();
   });
 
-  it("allows retry after a protected network failure and clears on a later 401", async () => {
-    const auth = mockAuth(json(session()), json(identity));
+  it("times out login and ignores a late successful response", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+    const loginResponse = deferred<Response>();
+    const fetchMock = mockApi({ ...baseRoutes(), "/api/auth/login": () => loginResponse.promise });
     render(<App />);
-    submitLogin();
-    await screen.findByText("demo@example.test");
-    auth.mockRejectedValueOnce(new Error("offline"));
-    fireEvent.click(screen.getByRole("button", { name: "Verify session" }));
-    await screen.findByText("Unable to reach authentication service. Try again.");
-    auth.mockResolvedValueOnce(json({}, 401));
-    fireEvent.click(screen.getByRole("button", { name: "Verify session" }));
-    await screen.findByText("Session invalid or expired. Log in again.");
-    expect(screen.queryByText("demo@example.test")).toBeNull();
+    await act(async () => { submitLogin(); });
+    await act(async () => { vi.advanceTimersByTime(10_000); });
+    const login = call(fetchMock, "/api/auth/login");
+    expect(((login?.[1] as RequestInit).signal as AbortSignal).aborted).toBe(true);
+    await act(async () => loginResponse.resolve(sessionResponse()));
+    expect(screen.getByText("Authentication request timed out. Try again.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Log out" })).toBeNull();
   });
 
-  it("aborts and ignores a stale protected response after logout", async () => {
-    let resolve!: (response: Response) => void;
-    const auth = mockAuth(json(session()), new Promise((done) => { resolve = done; }));
-    render(<App />);
+  it("aborts an in-flight login on unmount", async () => {
+    const loginResponse = deferred<Response>();
+    const fetchMock = mockApi({ ...baseRoutes(), "/api/auth/login": () => loginResponse.promise });
+    const view = render(<App />);
     submitLogin();
-    await screen.findByRole("button", { name: "Log out" });
-    const signal = auth.mock.calls[1][1].signal as AbortSignal;
-    fireEvent.click(screen.getByRole("button", { name: "Log out" }));
-    expect(signal.aborted).toBe(true);
-    await act(async () => resolve(json(identity)));
-    expect(screen.queryByText("demo@example.test")).toBeNull();
-    expect(screen.getByRole("button", { name: "Log in" })).toBeTruthy();
+    const login = call(fetchMock, "/api/auth/login");
+    view.unmount();
+    expect(((login?.[1] as RequestInit).signal as AbortSignal).aborted).toBe(true);
   });
 
   it("ignores an old identity response after a new login succeeds", async () => {
-    let resolve!: (response: Response) => void;
-    mockAuth(json(session()), new Promise((done) => { resolve = done; }), json(session()), json({ user: { id: "new-id", email: "new@example.test" } }));
+    const firstMe = deferred<Response>();
+    const fetchMock = mockApi({
+      "/api/health": healthy,
+      "/api/auth/login": [sessionResponse, sessionResponse],
+      "/api/auth/me": [() => firstMe.promise, () => json({ user: { id: "new-id", email: "new@example.test" } })],
+      "/api/tickets": emptyTickets,
+    });
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
     render(<App />);
-    submitLogin();
-    await screen.findByRole("button", { name: "Log out" });
-    fireEvent.click(screen.getByRole("button", { name: "Log out" }));
-    submitLogin();
-    await screen.findByText("new@example.test");
-    await act(async () => resolve(json(identity)));
+    await act(async () => { submitLogin(); });
+    expect(screen.queryByRole("button", { name: "Log out" })).toBeNull();
+    const me = call(fetchMock, "/api/auth/me");
+    await act(async () => { vi.advanceTimersByTime(10_000); });
+    expect(((me?.[1] as RequestInit).signal as AbortSignal).aborted).toBe(true);
+    await act(async () => { submitLogin(); });
+    await act(async () => {});
+    expect(screen.getByText("new@example.test")).toBeTruthy();
+    await act(async () => firstMe.resolve(identity()));
     expect(screen.queryByText("demo@example.test")).toBeNull();
     expect(screen.getByText("new@example.test")).toBeTruthy();
   });
@@ -126,42 +141,26 @@ describe("demo authentication", () => {
   it("expires and ignores a delayed identity response", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
-    let resolve!: (response: Response) => void;
-    const auth = mockAuth(json({ ...session(), expiresAt: Date.now() + 1000 }), new Promise((done) => { resolve = done; }));
+    const meResponse = deferred<Response>();
+    const fetchMock = mockApi({
+      "/api/health": healthy,
+      "/api/auth/login": () => sessionResponse(1000),
+      "/api/auth/me": () => meResponse.promise,
+      "/api/tickets": emptyTickets,
+    });
     render(<App />);
     await act(async () => { submitLogin(); });
+    expect(screen.queryByRole("button", { name: "Log out" })).toBeNull();
     await act(async () => { vi.advanceTimersByTime(1000); });
-    expect(auth.mock.calls[1][1].signal.aborted).toBe(true);
-    await act(async () => resolve(json(identity)));
+    const me = call(fetchMock, "/api/auth/me");
+    expect(((me?.[1] as RequestInit).signal as AbortSignal).aborted).toBe(true);
+    await act(async () => meResponse.resolve(identity()));
     expect(screen.getByText("Session expired. Log in again.")).toBeTruthy();
     expect(screen.queryByText("demo@example.test")).toBeNull();
   });
-
-  it("times out login and ignores a late successful response", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
-    let resolve!: (response: Response) => void;
-    const auth = mockAuth(new Promise((done) => { resolve = done; }));
-    render(<App />);
-    await act(async () => { submitLogin(); });
-    await act(async () => { vi.advanceTimersByTime(10_000); });
-    expect(auth.mock.calls[0][1].signal.aborted).toBe(true);
-    await act(async () => resolve(json(session())));
-    expect(screen.getByText("Authentication request timed out. Try again.")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Log out" })).toBeNull();
-  });
-
-  it("aborts an in-flight login on unmount", async () => {
-    const auth = mockAuth(new Promise(() => {}));
-    const view = render(<App />);
-    submitLogin();
-    const signal = auth.mock.calls[0][1].signal as AbortSignal;
-    view.unmount();
-    expect(signal.aborted).toBe(true);
-  });
 });
 
-describe("workspace health", () => {
+describe("login page health", () => {
   it("shows the pending state until the API responds", () => {
     vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
     render(<App />);

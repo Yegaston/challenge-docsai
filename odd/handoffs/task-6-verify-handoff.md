@@ -14,6 +14,7 @@ Prove the whole Part 1 flow from a clean checkout and present it: complete the R
 
 ## Outstanding items this task must account for (not necessarily fix)
 
+- **Deferred real-browser walkthrough from Task 5 (including Task 2 login/logout visual check):** user explicitly deferred it to Task 6. Safari WebDriver local probe returned HTTP 500 `session not created` until Safari Settings → Developer → Allow remote automation is enabled by the user. Do not equate jsdom or HTTP evidence with a visual pass. If Safari remains blocked, offer a human manual walkthrough and record its actual result or continued skip.
 - **Skipped live-model smoke from Task 4**: run it here if the user opts in, otherwise record it as skipped with the concrete reason (no key authorized this iteration).
 - **Task 2 advisory follow-ups** (`apps/web/src/App.tsx:63–64` readability/client-clock-skew): resolve or record explicitly as accepted limitations.
 - **Skipped/limited checks accumulated across tasks** (full pre-fix 313-check PostgreSQL suite not repeated after the crash fix; live uncertain-ACK scenario mock-only): listed plainly as skipped, not passed.
@@ -23,7 +24,7 @@ Prove the whole Part 1 flow from a clean checkout and present it: complete the R
 
 1. Read the current README (20 KB, already partially updated by Makefile/dev-password work — reconcile rather than overwrite), `compose.yaml`, `config/development.example`, and the feature brief's Task 6 section.
 2. Plan the README completion as its own work unit; if README plus missing cross-layer checks exceeds the ≤400-line target, split into independently reviewable units and report the split before implementing.
-3. Run the clean-checkout walkthrough: fresh clone/copy → `npm ci` → Compose up → seeded demo login → full ticket flow → results/refine/history → logout. Use the available browser tooling for the visual pass; record every failed, skipped, or unavailable check plainly.
+3. Run the clean-checkout walkthrough: fresh clone/copy → `npm ci` → Compose up → seeded demo login → full ticket flow → results/refine/history → logout. First resolve Safari's user-owned remote automation setting (or use a user-run manual browser walkthrough); the cloud Composio browser cannot reach localhost. A real provider call requires separate user opt-in and a local key; without it, test the real-stack failure path and separately verify success UI with controlled mocked responses, labeling each honestly. Record every failed, skipped, or unavailable check plainly.
 4. Negative paths at the integration level: expired/invalid token mid-flow, invalid ticket text, provider failure state surfaced in UI, non-owner isolation spot-check.
 5. Close the feature brief: final Task 4–6 evidence, honest skipped-check register, and the Part 2/3 deferred checklist left intact. Work-unit commit(s) as authorized.
 
