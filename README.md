@@ -1,6 +1,6 @@
 # Support Ticket AI
 
-A local-development app with a persistent demo account: React + TypeScript + Vite, shadcn/ui-compatible components with Tailwind CSS, an Express API, and PostgreSQL. Login protects per-user ticket storage and synchronous AI analysis. The ticket UI is not implemented yet.
+A local-development app with a persistent demo account: React + TypeScript + Vite, shadcn/ui-compatible components with Tailwind CSS, an Express API, and PostgreSQL. Login protects per-user ticket storage and synchronous AI analysis through the implemented ticket UI.
 
 ## Start with Docker Compose
 
@@ -34,7 +34,14 @@ docker compose up --wait
 
 `config/development.example` is a blank credential template, not loaded under that name. Keep the same local credentials for restarts, whether using `.env` or the exported-environment alternative.
 
-Open **http://localhost:5173**. The page should show **API online · PostgreSQL reachable**. Log in with the email/password you supplied; your email appears only after the protected API confirms your identity. **Verify session** repeats that request; **Log out** clears the in-memory session. Compose installs the locked dependencies before starting the applications; the first startup needs internet access to pull images and npm packages.
+Open **http://localhost:5173** and log in with the email/password you supplied. Your email appears after the protected API confirms your identity. Compose installs the locked dependencies before starting the applications; the first startup needs internet access to pull images and npm packages.
+
+### UI walkthrough (no paid provider call required)
+
+1. Log in, then select **New ticket**. Enter a synthetic support request and select **Create ticket**. Creation persists the ticket and starts a synchronous analysis request; the UI waits up to a minute. **Stop waiting** only stops the browser wait, not necessarily server processing.
+2. Without `OPENROUTER_API_KEY`, the attempt is persisted as **failed** with code `unconfigured` (shown as a safe failure message in the UI): this is **not** a successful model result. Select **View ticket** to inspect the original text and failed attempt. Do not select **Try analysis again** merely to simulate success.
+3. On the detail page, inspect **Latest analysis**, optionally enter a refinement instruction and select **Refine analysis** (another persisted attempt, also `unconfigured` without a key). **Earlier versions** preserve prior attempts. Use **Back to tickets** or **Tickets** for the history list and its latest status; return to the detail page to inspect versions.
+4. Select **Log out**; the in-memory token is cleared and protected pages require login again. A real provider success requires a privately configured key and explicit cost approval; it is not part of this no-cost walkthrough.
 
 ```sh
 curl --fail http://localhost:3001/api/health
@@ -109,9 +116,9 @@ All ticket routes require `Authorization: Bearer <token>` from login and return 
 
 On every startup, including existing volumes and built `dist` execution, the API applies `001-users.sql`, `002-tickets.sql`, then `003-analyses.sql` before seeding/listening. These migrations are idempotent; existing demo UUIDs and password hashes remain unchanged. Keep `apps/api/migrations/` beside `dist/`; no manual migration command is needed.
 
-**Demo limitations:** history has no pagination, ticket text is retained without a deletion/retention policy, and there is no ticket UI yet. For live persistence verification, create a ticket using a locally held bearer token, restart the API and database, then list/read it again. Use a second seeded account to confirm its list excludes the first account's tickets and detail returns 404. Never share tokens or ticket content in logs.
+**Demo limitations:** history has no pagination, and ticket text is retained without a deletion/retention policy. For live persistence verification, create a ticket using a locally held bearer token, restart the API and database, then list/read it again. Use a second seeded account to confirm its list excludes the first account's tickets and detail returns 404. Never share tokens or ticket content in logs.
 
-## Ticket analysis (backend only)
+## Ticket analysis (API and UI)
 
 Privately configure `OPENROUTER_API_KEY` in the Compose `.env`, or export it for host Node. Missing keys do not prevent auth/ticket startup; an analysis records `unconfigured` failure instead. Configure `OPENROUTER_MODEL` and restart the API to change models. No production fake adapter is used.
 
@@ -125,7 +132,9 @@ Privately configure `OPENROUTER_API_KEY` in the Compose `.env`, or export it for
 
 **Live opt-in smoke:** no paid calls are part of deterministic checks. With explicit cost approval and a privately configured key, create a small synthetic ticket and POST to its analyses route with a locally held bearer token; check persisted success, language, grounding, category and a refinement after reload. Never print headers/secrets or use customer data. This task's real-provider smoke is skipped; catalog capability metadata is not evidence of model quality. PostgreSQL persistence/concurrency also requires independent live verification.
 
-**Production limitations:** ticket text/instructions and analysis versions are retained without deletion/PII policy and sent to OpenRouter. Add privacy controls, per-account budgets/global quotas, evaluations, observability/redaction and crash reconciliation before production; these local demo limits are not a full abuse or cost-control system.
+**Data and trust flow:** The browser holds the bearer token in React memory only and sends it to owner-protected API routes; Express persists tickets and analysis attempts in PostgreSQL. When configured, the server sends the original ticket text and only the current refinement instruction to OpenRouter; each attempt persists its result or failure for detail/history display. The optional provider key stays server-side; never expose it via `VITE_*`. The selected model and `ticket-analysis-v1` prompt version are recorded per attempt. Ticket text and instructions are untrusted data separated from system instructions, not a guarantee against prompt injection; model quality, grounding and language adherence need evaluation.
+
+**Production boundary:** The implemented limit is five durable analysis starts per user in a rolling minute, with at most one active call per user; failed starts count. This is not a spending cap. Production needs per-account and global budgets, provider quotas, backpressure, cost/error/latency monitoring, and crash reconciliation. **Part 2 is deferred:** privacy/PII handling, deletion and retention policy, and systematic evaluation. **Part 3 is deferred:** cloud infrastructure as code and deployment. This local demo is not production hardened.
 
 ## Checks
 
@@ -144,7 +153,7 @@ make run                      # Live check; requires Docker and local credential
 
 Tests cover ticket create/list/detail, validation boundaries, owner isolation, SQL parameters/order, startup migrations and safe failures, as well as password hashing, conflict-safe seeding, JWT negative cases, auth/UI regressions and public health. Database access is mocked in unit tests; these do **not** prove real PostgreSQL persistence. The two `curl` commands above verify live database health and the Vite proxy.
 
-For a live auth/persistence check: log in in the browser, use **Verify session**, then log out and confirm the login form returns. `curl -i http://localhost:5173/api/auth/me` without a token must return 401. Restart the API with `docker compose restart api`, then log in again with the original credentials. Using a temporary different `DEMO_PASSWORD` with the same email and recreating the API must leave only the original password valid; restore your original local environment value afterward. Do not print or share bearer tokens, hashes, or secrets when inspecting requests. Check rendering and **Check again** in a real browser as well.
+For a live auth/persistence check: log in in the browser, open **Tickets**, then log out and confirm the login form returns. `curl -i http://localhost:5173/api/auth/me` without a token must return 401. Restart the API with `docker compose restart api`, then log in again with the original credentials. Using a temporary different `DEMO_PASSWORD` with the same email and recreating the API must leave only the original password valid; restore your original local environment value afterward. Do not print or share bearer tokens, hashes, or secrets when inspecting requests. Check rendering in a real browser as well.
 
 To check live reload, edit text in `apps/web/src/App.tsx` and confirm the browser updates; edit `apps/api/src/app.ts` and confirm the API restarts. Source is bind-mounted in Compose, Vite uses polling, and the API uses `tsx watch`. On platforms where native API filesystem events do not propagate, run the host Node development path.
 
@@ -163,6 +172,6 @@ apps/api/  Composition root, auth/users/health/tickets/analyses feature modules,
 - Root scripts fan out to npm workspaces. The root Vitest override keeps optional tooling peers on the same patched 4.1 release; npm 10 otherwise encounters a peer-resolution error. API build output is `apps/api/dist`; Vite output is `apps/web/dist`. `npm run start -w @support/api` runs the built API with `DATABASE_URL`, `DEMO_EMAIL`, `DEMO_PASSWORD`, and `JWT_SECRET` exported; keep `apps/api/migrations/` alongside `dist/`. Frontend static hosting and production routing are out of scope.
 - Compose uses a single dependency-install service and shared container-only root and workspace `node_modules` volumes, separate from host dependencies and Vite caches. After changing dependencies, stop the app services, rerun `docker compose run --no-deps dependencies`, then run `docker compose up --wait`.
 - Published Docker ports bind to localhost. The Node/Vite dev servers listen on all interfaces for container access; run host development only on a trusted machine/network.
-- This is development infrastructure, not a hardened production deployment. There are no signup/reset/refresh/roles, ticket UI, or cloud infrastructure in this task.
+- This is development infrastructure, not a hardened production deployment. There are no signup/reset/refresh/roles or cloud infrastructure in this task.
 
-Review analysis owner scoping, durable attempt start, lock lifecycle and SDK timeout/validation first, then migrations and auth/ticket regressions. Task 4 extends persisted tickets with backend analysis; ticket UI remains the next unit.
+Review UI create → analysis → detail/refinement/history and uncertain-wait handling alongside analysis owner scoping, durable attempt start, lock lifecycle, SDK timeout/validation, migrations, and auth/ticket regressions. Live browser, PostgreSQL, Compose and paid-provider behavior need independent verification; the documented commands are not claims that those checks passed.

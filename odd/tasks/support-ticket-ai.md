@@ -157,6 +157,13 @@ ASSESS with explicit unavailable review returned unassessable because intended u
 **Acceptance:** A reviewer with a fresh checkout can run the app, log in, submit text, view/refine a structured result, and understand where data and secrets flow. The README clearly separates implemented safeguards from production recommendations.\
 **Checks:** Clean-checkout local walkthrough, builds/tests, Compose startup, negative auth/error path, and optional live-model smoke run. Record failed, skipped, and unavailable checks plainly. If README plus missing tests exceeds budget, split into meaningful independently reviewable units.
 
+### Task 6 execution plan (authorized)
+
+Branch `feat/verify-handoff` starts at the Task 5 closure commit. `gh stack` is unavailable and its local metadata omits the Task 5 branch, so this is a local parent-based branch, not a claim that the stack extension registered it; reconcile metadata before any future PR. No push, PR or merge is authorized. The user declined a paid OpenRouter smoke, which must be recorded as skipped. For the deferred visual walkthrough, use a temporary Playwright installation outside the repository if feasible; do not call jsdom or HTTP results visual proof. Keep the PR slice at or below 400 changed lines, or report an honest split/exception before widening scope.
+
+- [ ] **T6a — Finish the reviewer README.** Reconcile stale pre-frontend claims; explain login → ticket → synchronous analysis/refinement → persisted history and the trust/provider/data boundaries, setup, model selection, production cost controls, limitations, and explicit Part 2/3 exclusions. Verify the README against source and shell/Markdown checks; commit this coherent documentation unit.
+- [ ] **T6b — Verify the clean local flow and close evidence.** Run dependency, test, typecheck/build and an isolated Compose walkthrough with disposable credentials, including auth/invalid ticket/owner/error outcomes. Attempt the real-browser Playwright walkthrough (including Task 2 login/logout visuals); distinguish a synthetic failure path from a successful model call. Record skipped/failed checks and cleanup in this brief and handoff; commit the evidence unit. Any application defect discovered becomes a separate scoped, test-first work unit before marking this done.
+
 ## Deferred checklist — not implementation tasks for this iteration
 
 ### Part 2: AI data and architecture
