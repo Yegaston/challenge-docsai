@@ -3,7 +3,7 @@ import { AnalysisError, type AnalysesService } from "../services/analyses.servic
 import { TicketError } from "../../tickets/services/tickets.service.js";
 
 const failures = {
-  invalid: [400, "Invalid analysis request."], limit: [429, "Analysis limit reached. Try later."],
+  invalid: [400, "Invalid analysis request."], missing: [404, "Ticket not found."], limit: [429, "Analysis limit reached. Try later."],
   database: [503, "Analysis storage unavailable. Reload before retrying."],
   timeout: [504, "Analysis timed out."], provider: [502, "Analysis provider failed."],
   invalid_output: [502, "Analysis output was invalid."], unconfigured: [502, "Analysis provider is not configured."],

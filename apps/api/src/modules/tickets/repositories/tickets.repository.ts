@@ -62,12 +62,12 @@ export function createTickets(database: Database): Tickets {
     },
     async list(owner) {
       return (await database.query(
-        "SELECT id, text, created_at FROM tickets WHERE owner_id = $1 ORDER BY created_at DESC, id DESC", [owner],
+        "SELECT id, text, created_at FROM tickets WHERE owner_id = $1 AND created_at > clock_timestamp() - interval '90 days' ORDER BY created_at DESC, id DESC", [owner],
       )).rows;
     },
     async byId(id, owner) {
       return (await database.query(
-        "SELECT id, text, created_at FROM tickets WHERE id = $1 AND owner_id = $2", [id, owner],
+        "SELECT id, text, created_at FROM tickets WHERE id = $1 AND owner_id = $2 AND created_at > clock_timestamp() - interval '90 days'", [id, owner],
       )).rows[0];
     },
   };

@@ -66,8 +66,9 @@ export function createAnalyses(pool: Pick<Pool, "connect" | "query">): Analyses 
         if (Number(count.rows[0].count) >= 5) throw new AnalysisError("limit");
         // Autocommitted before provider invocation; no transaction across paid I/O.
         const inserted = await query<AnalysisRecord>(
-          "INSERT INTO analyses (id,ticket_id,owner_id,status,model,prompt_version,instruction,created_at) VALUES ($1,$2,$3,'running',$4,$5,$6,clock_timestamp()) RETURNING *",
+          "INSERT INTO analyses (id,ticket_id,owner_id,status,model,prompt_version,instruction,created_at) SELECT $1,t.id,t.owner_id,'running',$4,$5,$6,clock_timestamp() FROM tickets t WHERE t.id=$2 AND t.owner_id=$3 AND t.created_at > clock_timestamp() - interval '90 days' RETURNING *",
           [row.id, row.ticket_id, row.owner_id, row.model, row.prompt_version, row.instruction]);
+        if (!inserted.rows[0]) throw new AnalysisError("missing");
         row.created_at = inserted.rows[0].created_at;
         return {
           release,
@@ -81,10 +82,10 @@ export function createAnalyses(pool: Pick<Pool, "connect" | "query">): Analyses 
           },
         };
       } catch (error) {
-        // Only a clean "limit" outcome returns the client to the pool; any
+        // Only clean limit/missing outcomes return the client to the pool; any
         // other failure, including a possibly-locked timed-out lock query,
         // destroys it so a broken or locked connection is never reused.
-        await release(!(error instanceof AnalysisError && error.kind === "limit"));
+        await release(!(error instanceof AnalysisError && (error.kind === "limit" || error.kind === "missing")));
         throw error;
       }
     },

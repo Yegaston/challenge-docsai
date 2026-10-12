@@ -14,18 +14,30 @@ it("parameterizes every value, scopes reads, and orders newest-first with a stab
   expect(query.mock.calls[0][0]).toContain("RETURNING id, text, created_at");
   expect(await tickets.list(row.owner_id)).toEqual([row]);
   expect(query.mock.calls[1]).toEqual([
-    expect.stringContaining("WHERE owner_id = $1 ORDER BY created_at DESC, id DESC"), [row.owner_id],
+    expect.stringContaining("WHERE owner_id = $1 AND created_at > clock_timestamp() - interval '90 days' ORDER BY created_at DESC, id DESC"), [row.owner_id],
   ]);
   expect(await tickets.byId(row.id, row.owner_id)).toEqual(row);
   expect(query.mock.calls[2]).toEqual([
     expect.stringContaining("WHERE id = $1 AND owner_id = $2"), [row.id, row.owner_id],
   ]);
   for (const [sql] of query.mock.calls) {
-    expect(sql).not.toContain("'");
     expect(sql).not.toContain("SELECT *");
   }
   query.mockResolvedValueOnce({ rows: [] });
   expect(await tickets.byId("missing", row.owner_id)).toBeUndefined();
+});
+
+it("uses the database clock and strict 90-day ticket cutoff for both owner reads, not deletion", async () => {
+  const query = vi.fn().mockResolvedValue({ rows: [] });
+  const tickets = createTickets({ query });
+  await tickets.list("owner");
+  await tickets.byId("ticket", "owner");
+  for (const [sql] of query.mock.calls) {
+    expect(sql).toContain("created_at > clock_timestamp() - interval '90 days'");
+    expect(sql).not.toContain("new Date");
+  }
+  expect(query.mock.calls[0][1]).toEqual(["owner"]);
+  expect(query.mock.calls[1][1]).toEqual(["ticket", "owner"]);
 });
 
 it("deletes under a transaction-scoped owner lock and destroys uncertain clients", async () => {

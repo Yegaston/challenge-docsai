@@ -15,6 +15,16 @@ function fixture(locked = true, count = "0") {
   const pool = { connect: vi.fn().mockResolvedValue(client), query: vi.fn().mockResolvedValue({ rows: [] }) };
   return { client, query, release, pool, repository: createAnalyses(pool as unknown as Pool) };
 }
+it("rejects a ticket expiring between detail and durable insert without a fabricated attempt", async () => {
+  const f = fixture();
+  f.query.mockResolvedValueOnce({ rows: [] });
+  await expect(f.repository.start({ ...row })).rejects.toMatchObject({ kind: "missing" });
+  expect(f.query.mock.calls[2][0]).toContain("created_at > clock_timestamp() - interval '90 days'");
+  expect(f.query.mock.calls[2][0]).toContain("owner_id=$3");
+  expect(f.query.mock.calls[2][0]).toContain("ticket_id");
+  expect(f.query.mock.calls[3][0]).toContain("pg_advisory_unlock");
+  expect(f.release).toHaveBeenCalledWith();
+});
 it("holds nonblocking per-user lock through durable start/final save and releases", async () => {
   const f = fixture(true, "4");
   const lease = await f.repository.start({ ...row });

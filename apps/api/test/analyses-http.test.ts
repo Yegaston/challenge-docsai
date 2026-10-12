@@ -78,6 +78,14 @@ it.each([["timeout", 504], ["provider", 502], ["invalid_output", 502], ["unconfi
   const detail = await request(f.app).get(`/api/tickets/${id}`).auth(f.bearer, { type: "bearer" });
   expect(detail.body.ticket.analyses).toEqual([result.body.analysis]); expect(f.release).toHaveBeenCalledTimes(1);
 });
+it("maps expiry after detail but before insert to safe missing without provider or failed attempt", async () => {
+  const f = await fixture(); f.start.mockRejectedValueOnce(new AnalysisError("missing"));
+  const result = await request(f.app).post(`/api/tickets/${id}/analyses`).auth(f.bearer, { type: "bearer" }).send({});
+  expect(result.status).toBe(404);
+  expect(result.body).toEqual({ code: "missing", error: "Ticket not found." });
+  expect(f.generate).not.toHaveBeenCalled(); expect(f.finish).not.toHaveBeenCalled();
+  expect(f.release).not.toHaveBeenCalled();
+});
 it.each([["limit", 429], ["database", 503]] as const)("maps %s safely", async (kind, status) => {
   const f = await fixture(); f.start.mockRejectedValueOnce(new AnalysisError(kind));
   const result = await request(f.app).post(`/api/tickets/${id}/analyses`).auth(f.bearer, { type: "bearer" }).send({});
