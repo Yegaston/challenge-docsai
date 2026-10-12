@@ -77,6 +77,12 @@ describe("demo persistence", () => {
     }
   });
 
+  it("seeds rolling synthetic date from UTC rather than PostgreSQL local CURRENT_DATE", async () => {
+    const source = await readFile(new URL("../src/infrastructure/initialize-users.ts", import.meta.url), "utf8");
+    expect(source).not.toContain("CURRENT_DATE");
+    expect(source).toContain("new Date().toISOString().slice(0, 10)");
+  });
+
   it("looks up users through parameterized queries", async () => {
     const query = vi.fn().mockResolvedValue({ rows: [] });
     const users = createUsers({ query });

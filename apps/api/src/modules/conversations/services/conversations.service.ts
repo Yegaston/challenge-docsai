@@ -50,9 +50,9 @@ export function createConversationsService(repository: Conversations, agent?: Tr
       if (!repository.withInvocation) throw new ConversationError("unavailable");
       return await repository.withInvocation(user.id, id, async () => {
         const result = await agent.run(user.id, text.trim(), history);
-        const response = { text: result.text, needsClarification: result.needsClarification };
+        const response = { text: result.text, needsClarification: result.needsClarification, options: result.options };
         await repository.complete!(user.id, id, key, result.activity, response);
-        return { text: response.text };
+        return response;
       });
     } catch (error) {
       throw error instanceof ConversationError ? error : new ConversationError("outcome_unknown");
@@ -93,7 +93,7 @@ export function createConversationsService(repository: Conversations, agent?: Tr
       const row = await repository.byId(id, user.id, user.role);
       if (!row) throw new ConversationError("missing");
       return { ...publicConversation(row), messages: (await repository.messages(id)).map((message) => ({
-        id: message.id, senderRole: message.sender_role, text: message.text, createdAt: message.created_at.toISOString(),
+        id: message.id, senderRole: message.sender_role, text: message.text, createdAt: message.created_at.toISOString(), ...(message.options ? { options: message.options } : {}),
       })) };
     },
   };

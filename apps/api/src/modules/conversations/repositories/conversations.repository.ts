@@ -1,8 +1,9 @@
 import type { Pool } from "pg";
 import { createHash } from "node:crypto";
+import type { ClarificationOption } from "../services/transfer-agent.js";
 
 export type Conversation = { id: string; owner_id: string; status: "open" | "escalated" | "resolved"; created_at: Date; clarification_deadline?: Date | null; ticket_id?: string | null };
-export type Message = { id: string; sender_role: string; text: string; created_at: Date };
+export type Message = { id: string; sender_role: string; text: string; created_at: Date; options?: ClarificationOption[] | null };
 export type Role = "customer" | "support";
 export type Conversations = {
   insert(row: Conversation, text: string): Promise<Conversation>;
@@ -14,7 +15,7 @@ export type Conversations = {
   completed?(owner: string, id: string, key: string): Promise<{ state: string; response: { text: string } | null }>;
   withInvocation?<T>(owner: string, id: string, run: () => Promise<T>): Promise<T>;
   finish?(owner: string, id: string, key: string, response?: { text: string }): Promise<void>;
-  complete?(owner: string, id: string, key: string, activity: string[], response: { text: string; needsClarification?: boolean }): Promise<void>;
+  complete?(owner: string, id: string, key: string, activity: string[], response: { text: string; needsClarification?: boolean; options?: ClarificationOption[] }): Promise<void>;
   humanMessage?(id: string, owner: string, role: Role, key: string, text: string): Promise<"new" | "duplicate" | "conflict" | false>;
   resolve?(id: string, owner: string): Promise<boolean>;
   throttle?(owner: string): Promise<boolean>;
@@ -86,7 +87,7 @@ export function createConversations(database: Pick<Pool, "query" | "connect">): 
         const newer = await client.query("SELECT 1 FROM chat_send_claims WHERE owner_id=$1 AND conversation_id=$2 AND created_at > (SELECT created_at FROM chat_send_claims WHERE owner_id=$1 AND conversation_id=$2 AND request_key=$3) LIMIT 1", [owner, id, key]);
         if (newer.rows.length) throw Error("A newer customer reply superseded this response");
         for (const [role, text] of [...activity.map((event): [string, string] => ["system", event]), ["agent", response.text] as [string, string]]) {
-          await client.query("INSERT INTO conversation_messages (id, conversation_id, sender_role, text, created_at) VALUES ($1,$2,$3,$4,clock_timestamp())", [crypto.randomUUID(), id, role, text]);
+          await client.query("INSERT INTO conversation_messages (id, conversation_id, sender_role, text, created_at, options) VALUES ($1,$2,$3,$4,clock_timestamp(),$5)", [crypto.randomUUID(), id, role, text, role === "agent" ? JSON.stringify(response.options ?? null) : null]);
         }
         await client.query("UPDATE conversations SET clarification_deadline=CASE WHEN $3 THEN clock_timestamp() + interval '4 hours' ELSE NULL END WHERE id=$1 AND owner_id=$2", [id, owner, response.needsClarification === true]);
         await client.query("UPDATE chat_send_claims SET state='done', response=$4 WHERE owner_id=$1 AND conversation_id=$2 AND request_key=$3", [owner, id, key, JSON.stringify(response)]);
@@ -148,7 +149,7 @@ export function createConversations(database: Pick<Pool, "query" | "connect">): 
       await database.query("INSERT INTO conversation_messages (id, conversation_id, sender_role, text, created_at) VALUES ($1, $2, $3, $4, now())", [crypto.randomUUID(), id, role, text]);
     },
     async messages(id) {
-      return (await database.query("SELECT id, sender_role, text, created_at FROM conversation_messages WHERE conversation_id = $1 ORDER BY created_at, id", [id])).rows as Message[];
+      return (await database.query("SELECT id, sender_role, text, created_at, options FROM conversation_messages WHERE conversation_id = $1 ORDER BY created_at, id", [id])).rows as Message[];
     },
   };
 }

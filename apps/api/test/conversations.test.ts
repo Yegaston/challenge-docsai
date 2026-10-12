@@ -17,6 +17,23 @@ it("replays a claim-state migration that permits outcome_unknown on existing and
   expect(startup).toContain('"014-chat-claim-state.sql"');
 });
 
+it("persists typed clarification options on the agent message and returns them on reload", async () => {
+  const migration = await readFile(new URL("../migrations/017-chat-clarification-options.sql", import.meta.url), "utf8");
+  expect(migration).toContain("ADD COLUMN IF NOT EXISTS options jsonb");
+  const statements: [string, unknown[] | undefined][] = [];
+  const client = { query: vi.fn(async (sql: string, values?: unknown[]) => {
+    statements.push([sql, values]);
+    if (sql.startsWith("SELECT status")) return { rows: [{ status: "open" }] };
+    if (sql.startsWith("SELECT state")) return { rows: [{ state: "pending" }] };
+    return { rows: [] };
+  }), release: vi.fn() };
+  const repository = createConversations({ query: vi.fn(async () => ({ rows: [{ id: customer.id, sender_role: "agent", text: "Choose", created_at: new Date(), options: [{ kind: "handoff", label: "Support" }] }] })), connect: vi.fn(async () => client) } as any);
+  await repository.complete!(customer.id, customer.id, other.id, [], { text: "Choose", needsClarification: true, options: [{ kind: "handoff", label: "Support" }] });
+  expect(statements.find(([sql]) => sql.startsWith("INSERT INTO conversation_messages"))?.[1]?.[4]).toBe('[{"kind":"handoff","label":"Support"}]');
+  expect((await repository.messages(customer.id))[0].options).toEqual([{ kind: "handoff", label: "Support" }]);
+  expect(statements.find(([sql]) => sql.startsWith("UPDATE conversations"))?.[0]).toContain("interval '4 hours'");
+});
+
 const customer = { id: "00000000-0000-4000-8000-000000000001", role: "customer" as const };
 const other = { id: "00000000-0000-4000-8000-000000000002", role: "customer" as const };
 const support = { id: "00000000-0000-4000-8000-000000000003", role: "support" as const };
@@ -96,15 +113,15 @@ it("replays a completed send without invoking the provider twice and rejects cha
   const repository = {
     insert: vi.fn(), list: vi.fn(), byId: vi.fn(async () => row), messages: vi.fn(async () => []), append: vi.fn(async () => {}),
     admit: vi.fn(async (_owner: string, _id: string, _key: string, text: string) => state === "duplicate" && text !== "where?" ? "conflict" as const : state),
-    completed: vi.fn(async () => ({ state: "done", response: { text: "verified" } })),
+    completed: vi.fn(async () => ({ state: "done", response: { text: "verified", needsClarification: true, options: [{ kind: "handoff", label: "Support" }] } })),
     finish: vi.fn(async () => {}), complete: vi.fn(async () => {}), throttle: vi.fn(async () => true),
     withInvocation: vi.fn(async (_owner: string, _id: string, run: () => Promise<unknown>) => run()),
   };
-  const run = vi.fn(async () => ({ text: "verified", activity: [] }));
+  const run = vi.fn(async () => ({ text: "verified", activity: [], needsClarification: true, options: [{ kind: "handoff", label: "Support" }] }));
   const service = createConversationsService(repository as any, { run } as any);
-  expect(await service.reply(customer, row.id, "where?", other.id)).toEqual({ text: "verified" });
+  expect(await service.reply(customer, row.id, "where?", other.id)).toEqual({ text: "verified", needsClarification: true, options: [{ kind: "handoff", label: "Support" }] });
   state = "duplicate";
-  expect(await service.reply(customer, row.id, "where?", other.id)).toEqual({ text: "verified" });
+  expect(await service.reply(customer, row.id, "where?", other.id)).toEqual({ text: "verified", needsClarification: true, options: [{ kind: "handoff", label: "Support" }] });
   expect(run).toHaveBeenCalledTimes(1);
   await expect(service.reply(customer, row.id, "different", other.id)).rejects.toThrow("invalid");
 });
