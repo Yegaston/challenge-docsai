@@ -3,7 +3,7 @@ import type { Pool } from "pg";
 export type AuditEvent =
   | { kind: "ticket_list"; ownerId: string }
   | { kind: "ticket_detail" | "ticket_deleted"; ownerId: string; ticketId: string }
-  | { kind: "analysis_started" | "analysis_succeeded"; ownerId: string; ticketId: string; analysisId: string }
+  | { kind: "analysis_started" | "analysis_succeeded" | "wrong_answer_reported"; ownerId: string; ticketId: string; analysisId: string }
   | { kind: "analysis_failed"; ownerId: string; ticketId: string; analysisId: string; failureCode: "timeout" | "provider" | "invalid_output" | "unconfigured" };
 
 export type AuditRepository = { insert(event: AuditEvent): Promise<void> };

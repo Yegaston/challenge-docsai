@@ -1,4 +1,6 @@
 import { Pool } from "pg";
+import { createReportsRepository } from "./modules/reports/repositories/reports.repository.js";
+import { createReportsService } from "./modules/reports/services/reports.service.js";
 import { createAuditRepository } from "./modules/audit/repositories/audit.repository.js";
 import { createAuditService } from "./modules/audit/services/audit.service.js";
 import { createApp } from "./app.js";
@@ -47,7 +49,7 @@ try {
   const analyses = createAnalysesService(createAnalyses(pool), ticketsService, createAnalysisProvider({
     apiKey: process.env.OPENROUTER_API_KEY, model: process.env.OPENROUTER_MODEL,
   }), audit);
-  tickets = createTicketsRouter(ticketsService, authService, analyses, audit);
+  tickets = createTicketsRouter(ticketsService, authService, analyses, audit, createReportsService(createReportsRepository(pool)));
   await initializeUsers(pool, process.env.DEMO_EMAIL, process.env.DEMO_PASSWORD);
   stopRetention = startTicketRetention(createTicketRetentionService(createTickets(pool)));
   stopAuditRetention = startAuditRetention(createAuditRetention(pool));

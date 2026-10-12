@@ -3,6 +3,8 @@ import { createAnalysesRouter } from "../../analyses/http/controller.js";
 import type { AuditService } from "../../audit/services/audit.service.js";
 import type { AnalysesService } from "../../analyses/services/analyses.service.js";
 import { requireUser } from "../../auth/http/controller.js";
+import { createReportsRouter } from "../../reports/http/controller.js";
+import type { ReportsService } from "../../reports/services/reports.service.js";
 import type { AuthService } from "../../auth/services/auth.service.js";
 import { TicketError, type TicketsService } from "../services/tickets.service.js";
 
@@ -16,7 +18,7 @@ function sendError(response: Response, error: unknown) {
   }
 }
 
-export function createTicketsRouter(service: TicketsService, auth: AuthService, analyses?: AnalysesService, audit?: AuditService) {
+export function createTicketsRouter(service: TicketsService, auth: AuthService, analyses?: AnalysesService, audit?: AuditService, reports?: ReportsService) {
   const router = express.Router();
   router.use((_request, response, next) => {
     response.set("Cache-Control", "no-store");
@@ -24,6 +26,7 @@ export function createTicketsRouter(service: TicketsService, auth: AuthService, 
   });
   router.use(requireUser(auth));
   if (analyses) router.use(createAnalysesRouter(analyses));
+  if (reports) router.use(createReportsRouter(reports, audit));
   // JSON escaping can expand 20,000 UTF-16 characters to roughly 120 KiB.
   router.post("/", express.json({ limit: "128kb", inflate: false }), async (request, response) => {
     try {
