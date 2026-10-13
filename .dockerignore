@@ -1,0 +1,32 @@
+# Allow only the production API build inputs; exclude secrets and local artifacts.
+**
+!package.json
+!package-lock.json
+!apps/
+!apps/api/
+!apps/api/package.json
+!apps/api/tsconfig.json
+!apps/api/tsconfig.build.json
+!apps/api/src/
+!apps/api/src/**
+!apps/api/migrations/
+!apps/api/migrations/*.sql
+!apps/api/Dockerfile
+!apps/web/
+!apps/web/package.json
+
+# Keep these last: recursive source allow rules must never re-include secrets.
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/id_rsa*
+**/id_dsa*
+**/id_ecdsa*
+**/id_ed25519*
+**/credentials.json
+**/credentials
+**/.aws/**
+**/.ssh/**

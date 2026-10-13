@@ -12,3 +12,14 @@ coverage/
 .env.*
 !.env.example
 *.log
+
+# Terraform local caches and secret-bearing artifacts (keep lockfile/examples)
+infra/terraform/**/.terraform/
+infra/terraform/**/*.tfstate*
+infra/terraform/**/*.tfplan
+infra/terraform/**/*.plan
+infra/terraform/**/*.tfvars
+infra/terraform/**/*.tfvars.json
+infra/terraform/**/crash*.log
+infra/terraform/floci-image.txt
+infra/floci/work/

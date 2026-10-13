@@ -1,0 +1,34 @@
+# Floci local-only AWS emulation stack. This is a simulation, never AWS.
+# Fixed network/volume names let scripts join the same emulated environment.
+services:
+  floci:
+    # Pinned by digest; image metadata reports FLOCI_VERSION=2.2.0.
+    image: floci/floci@sha256:e97cd0c1dc2aa14e7697fb5ef5018404c4d6345169dbd276315f0bed2c7b0520
+    ports:
+      # Loopback only: the emulator is never exposed beyond this host.
+      - "127.0.0.1:4566:4566"
+    volumes:
+      # Floci launches ECS/RDS workload containers through the host daemon.
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Persistent emulator storage; note most service state is in-memory and
+      # is reset by a Floci restart (see docs/deployment.md emulator gaps).
+      - floci-challenge-state:/app/data
+    # Floci rejects custom CloudFront origins that resolve to private
+    # addresses unless the exact hostname is allowlisted. This fixed alias
+    # points at the ALB listener served by this same container; Terraform in
+    # local mode uses the same fixed origin host so no restart cycle (which
+    # would wipe emulated state) is ever needed.
+    environment:
+      FLOCI_SERVICES_CLOUDFRONT_ALLOWED_PRIVATE_ORIGIN_HOSTS: challenge-api-alb.localhost.floci.io
+    networks:
+      floci:
+        aliases:
+          - challenge-api-alb.localhost.floci.io
+
+volumes:
+  floci-challenge-state:
+    name: floci-challenge-state
+
+networks:
+  floci:
+    name: floci-challenge-net
