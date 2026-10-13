@@ -34,7 +34,7 @@ describe("demo persistence", () => {
     await seedDemoUser({ query }, "demo@example.test", "changed-password");
     expect(query.mock.calls[0][0]).toContain("CREATE TABLE IF NOT EXISTS users");
     const schemas = query.mock.calls.filter(([sql]) => sql.includes("CREATE TABLE"));
-    expect(schemas).toHaveLength(18);
+    expect(schemas).toHaveLength(20);
     expect(query.mock.calls.filter(([sql]) => sql.includes("audit_report_shape"))).toHaveLength(6);
     expect(schemas[1][0]).toContain("CREATE TABLE IF NOT EXISTS tickets");
     expect(schemas[2][0]).toContain("CREATE TABLE IF NOT EXISTS analyses");
@@ -42,7 +42,8 @@ describe("demo persistence", () => {
     expect(schemas[4][0]).toContain("CREATE TABLE IF NOT EXISTS wrong_answer_reports");
     expect(schemas[5][0]).toContain("CREATE TABLE IF NOT EXISTS report_corrections");
     expect(schemas[6][0]).toContain("CREATE TABLE IF NOT EXISTS conversations");
-    for (let index = 0; index < 9; index++) expect(schemas[index + 9][0]).toBe(schemas[index][0]);
+    for (let index = 0; index < 10; index++) expect(schemas[index + 10][0]).toBe(schemas[index][0]);
+    expect(schemas[9][0]).toContain("refresh_sessions");
     expect(schemas[6][0]).toContain("ADD COLUMN IF NOT EXISTS role");
     expect(schemas[6][0]).toContain("CREATE TABLE IF NOT EXISTS conversation_messages");
     expect(stored === original).toBe(true);

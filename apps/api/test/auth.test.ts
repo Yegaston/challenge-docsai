@@ -11,14 +11,23 @@ const now = new Date("2026-01-01T00:00:00Z");
 const id = "00000000-0000-4000-8000-000000000001";
 let user: { id: string; email: string; password_hash: string; role?: "customer" | "support" };
 let app: ReturnType<typeof createApp>;
+const rows = new Map<string, { ownerId: string; expiresAt: Date }>();
+const sessions = {
+  create: vi.fn(async (hash: string, ownerId: string, _created: Date, expiresAt: Date) => { rows.set(hash, { ownerId, expiresAt }); }),
+  byHash: vi.fn(async (hash: string) => rows.get(hash)),
+  revoke: vi.fn(async (hash: string) => { rows.delete(hash); }),
+  purge: vi.fn(async () => {}),
+};
 const users = { byEmail: vi.fn(), byId: vi.fn() };
 
 beforeAll(async () => {
   user = { id, email: "demo@example.test", password_hash: await passwords.hashPassword("synthetic-password") };
-  app = createApp(async () => {}, await createAuth({ users, secret, now: () => now }));
+  app = createApp(async () => {}, await createAuth({ users, sessions, secret, now: () => now }));
 });
 beforeEach(() => {
   vi.restoreAllMocks();
+  rows.clear();
+  sessions.byHash.mockClear();
   users.byEmail.mockReset().mockImplementation(async (email) => email === user.email ? user : undefined);
   users.byId.mockReset().mockImplementation(async (value) => value === id ? user : undefined);
 });
@@ -95,6 +104,46 @@ describe("demo login", () => {
 
   it.each([undefined, "short", "é".repeat(15)])("requires at least 32 bytes of signing secret %#", async (value) => {
     await expect(createAuth({ users, secret: value })).rejects.toThrow("JWT_SECRET");
+  });
+});
+
+describe("refresh cookie", () => {
+  it("sets scoped cookie without exposing secret in JSON and revokes on logout", async () => {
+    const login = await request(app).post("/api/auth/login").send({ email: user.email, password: "synthetic-password" });
+    const cookie = login.headers["set-cookie"][0] as string;
+    expect(cookie).toContain("HttpOnly");
+    expect(cookie).toContain("SameSite=Lax");
+    expect(cookie).toContain("Path=/api/auth");
+    expect(cookie).toContain("Max-Age=604800");
+    expect(Object.keys(login.body).sort()).toEqual(["expiresAt", "token"]);
+    const refreshed = await request(app).post("/api/auth/refresh").set("Cookie", cookie);
+    expect(refreshed.status).toBe(200);
+    expect(refreshed.body.expiresAt).toBe(now.getTime() + 900000);
+    expect(refreshed.headers["set-cookie"]).toBeUndefined();
+    expect((await request(app).get("/api/auth/me").set("Cookie", cookie)).status).toBe(401);
+    expect((await request(app).post("/api/auth/logout").set("Cookie", cookie)).status).toBe(204);
+    const revoked = await request(app).post("/api/auth/refresh").set("Cookie", cookie);
+    expect(revoked.status).toBe(401);
+    expect(revoked.headers["set-cookie"][0]).toContain("Expires=Thu, 01 Jan 1970");
+  });
+  it("keeps the cookie on revoke failure so logout can be retried", async () => {
+    const login = await request(app).post("/api/auth/login").send({ email: user.email, password: "synthetic-password" });
+    const cookie = login.headers["set-cookie"][0] as string;
+    sessions.revoke.mockRejectedValueOnce(new Error("database down"));
+    const failed = await request(app).post("/api/auth/logout").set("Cookie", cookie);
+    expect(failed.status).toBe(503);
+    expect(failed.headers["set-cookie"]).toBeUndefined();
+    expect((await request(app).post("/api/auth/refresh").set("Cookie", cookie)).status).toBe(200);
+    const retried = await request(app).post("/api/auth/logout").set("Cookie", cookie);
+    expect(retried.status).toBe(204);
+    expect(retried.headers["set-cookie"][0]).toContain("Expires=Thu, 01 Jan 1970");
+  });
+  it("rejects foreign origins and malformed or duplicated cookies", async () => {
+    expect((await request(app).post("/api/auth/login").set("Origin", "https://evil.test").send({ email: user.email, password: "synthetic-password" })).status).toBe(403);
+    expect((await request(app).post("/api/auth/refresh").set("Sec-Fetch-Site", "cross-site")).status).toBe(403);
+    for (const cookie of ["refresh=x", "refresh=x; refresh=y", "other=x"]) {
+      expect((await request(app).post("/api/auth/refresh").set("Cookie", cookie)).status).toBe(401);
+    }
   });
 });
 

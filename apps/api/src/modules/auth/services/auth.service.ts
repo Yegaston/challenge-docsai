@@ -1,4 +1,5 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
+import type { RefreshSessions } from "../repositories/refresh-sessions.repository.js";
 import { jwtVerify, SignJWT } from "jose";
 import type { Users } from "../../users/repositories/users.repository.js";
 import { hashPassword, verifyPassword } from "../utils/password.js";
@@ -12,15 +13,24 @@ export class AuthError extends Error {
   }
 }
 
-type AuthOptions = { users: Users; secret: string | undefined; now?: () => Date };
+type AuthOptions = { users: Users; sessions?: RefreshSessions; secret: string | undefined; now?: () => Date };
+const hashSecret = (secret: string) => createHash("sha256").update(secret).digest("hex");
 export type AuthService = Awaited<ReturnType<typeof createAuthService>>;
 
-export async function createAuthService({ users, secret, now = () => new Date() }: AuthOptions) {
+export async function createAuthService({ users, sessions, secret, now = () => new Date() }: AuthOptions) {
   if (!secret || Buffer.byteLength(secret, "utf8") < 32) {
     throw new Error("JWT_SECRET must contain at least 32 bytes. See README.md.");
   }
   const key = new TextEncoder().encode(secret);
   const dummyHash = await hashPassword(randomBytes(32).toString("hex"));
+  async function issue(ownerId: string) {
+    const issuedAt = Math.floor(now().getTime() / 1000);
+    const token = await new SignJWT({})
+      .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+      .setIssuer(issuer).setAudience(audience).setSubject(ownerId)
+      .setIssuedAt(issuedAt).setExpirationTime(issuedAt + lifetime).sign(key);
+    return { token, expiresAt: (issuedAt + lifetime) * 1000 };
+  }
   return {
     async login(email: string, password: string) {
       try {
@@ -28,16 +38,34 @@ export async function createAuthService({ users, secret, now = () => new Date() 
         // Perform the same expensive verification even when no account exists.
         const matches = await verifyPassword(password, user?.password_hash ?? dummyHash);
         if (!user || !matches) throw new AuthError("invalid-credentials");
-        const issuedAt = Math.floor(now().getTime() / 1000);
-        const token = await new SignJWT({})
-          .setProtectedHeader({ alg: "HS256", typ: "JWT" })
-          .setIssuer(issuer).setAudience(audience).setSubject(user.id)
-          .setIssuedAt(issuedAt).setExpirationTime(issuedAt + lifetime).sign(key);
-        return { token, expiresAt: (issuedAt + lifetime) * 1000 };
+        const access = await issue(user.id);
+        if (!sessions) return { ...access, refreshSecret: undefined as string | undefined };
+        const refreshSecret = randomBytes(32).toString("base64url");
+        const createdAt = now();
+        await sessions.create(hashSecret(refreshSecret), user.id, createdAt, new Date(createdAt.getTime() + 604800000));
+        return { ...access, refreshSecret };
       } catch (error) {
         if (error instanceof AuthError) throw error;
         throw new AuthError("unavailable");
       }
+    },
+    async refresh(refreshSecret: string) {
+      if (!sessions || !/^[A-Za-z0-9_-]{43}$/.test(refreshSecret)) throw new AuthError("invalid-session");
+      try {
+        const session = await sessions.byHash(hashSecret(refreshSecret));
+        if (!session || session.expiresAt.getTime() <= now().getTime()) throw new AuthError("invalid-session");
+        const user = await users.byId(session.ownerId);
+        if (!user) throw new AuthError("invalid-session");
+        return await issue(user.id);
+      } catch (error) {
+        if (error instanceof AuthError) throw error;
+        throw new AuthError("unavailable");
+      }
+    },
+    async logout(refreshSecret: string) {
+      if (!sessions || !/^[A-Za-z0-9_-]{43}$/.test(refreshSecret)) return;
+      try { await sessions.revoke(hashSecret(refreshSecret)); }
+      catch { throw new AuthError("unavailable"); }
     },
     async identity(token: string) {
       let subject: string;

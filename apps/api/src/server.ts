@@ -12,6 +12,7 @@ import { createAuditService } from "./modules/audit/services/audit.service.js";
 import { createApp } from "./app.js";
 import { createAuthRouter } from "./modules/auth/http/controller.js";
 import { createAuthService } from "./modules/auth/services/auth.service.js";
+import { createRefreshSessions } from "./modules/auth/repositories/refresh-sessions.repository.js";
 import { createUsers } from "./modules/users/repositories/users.repository.js";
 import { createHealthRepository } from "./modules/health/repositories/health.repository.js";
 import { initializeUsers } from "./infrastructure/initialize-users.js";
@@ -53,10 +54,12 @@ let stopAuditRetention: (() => Promise<void>) | undefined;
 let stopConversationRetention: (() => Promise<void>) | undefined;
 let stopEscalation: (() => Promise<void>) | undefined;
 let stopFixtures: (() => void) | undefined;
+let stopRefresh: (() => void) | undefined;
 let fixtures;
 try {
-  const authService = await createAuthService({ users: createUsers(pool), secret: process.env.JWT_SECRET });
-  auth = createAuthRouter(authService);
+  const refreshSessions = createRefreshSessions(pool);
+  const authService = await createAuthService({ users: createUsers(pool), sessions: refreshSessions, secret: process.env.JWT_SECRET });
+  auth = createAuthRouter(authService, { externalOrigin: process.env.AUTH_EXTERNAL_ORIGIN });
   const fixtureRepo = createFixtureRepository(pool);
   fixtures = createFixtureRouter(fixtureRepo, authService);
   const escalation = createConversationEscalation(pool);
@@ -75,6 +78,10 @@ try {
   void fixtureRepo.purge().catch(() => console.warn("Fixture retention sweep failed; will retry."));
   const fixtureTimer = setInterval(() => { void fixtureRepo.purge().catch(() => console.warn("Fixture retention sweep failed; will retry.")); }, 15 * 60 * 1000);
   stopFixtures = () => clearInterval(fixtureTimer);
+  const purgeRefresh = () => { void refreshSessions.purge(new Date()).catch(() => console.warn("Refresh retention sweep failed; will retry.")); };
+  purgeRefresh();
+  const refreshTimer = setInterval(purgeRefresh, 15 * 60 * 1000);
+  stopRefresh = () => clearInterval(refreshTimer);
 } catch {
   // Startup errors may contain driver details or credentials: never print them.
   console.error("Authentication initialization failed. Check database access and DEMO_EMAIL, DEMO_PASSWORD, JWT_SECRET configuration (README.md).");
@@ -99,6 +106,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
         await stopConversationRetention?.();
         await stopEscalation?.();
         stopFixtures?.();
+        stopRefresh?.();
         await pool.end();
       })().then(() => {
         clearTimeout(deadline);
