@@ -1,0 +1,5 @@
+# Local only; copy to an ignored *.tfvars. No real AWS credentials.
+local_emulation = true
+local_endpoint  = "http://floci:4566"
+region          = "us-east-1"
+name            = "challenge"

@@ -1,6 +1,6 @@
 # AWS-shaped deployment with Floci
 
-The accepted target is a private S3 SPA behind CloudFront, with `/api/*` routed through an ALB to private ECS Fargate tasks and private RDS PostgreSQL. **Only the production API image is implemented here.** Terraform resources and a reproducible Floci deployment/smoke workflow are next steps, not available commands. Development Compose remains unchanged.
+The accepted target is a private S3 SPA behind CloudFront, with `/api/*` routed through an ALB to private ECS Fargate tasks and private RDS PostgreSQL. **The production API image and Terraform network/data/secret foundation are implemented.** ECS/ALB/ECR, frontend delivery and a reproducible Floci deployment/smoke workflow remain planned. Development Compose remains unchanged.
 
 ## Build and inspect the API
 
@@ -56,6 +56,32 @@ These are intended AWS security boundaries, **not verified emulator protections*
 
 Secrets Manager references keep values out of image layers and plaintext task definitions, but ECS injects values into the process environment; access to processes/task execution is sensitive. Secret rotation requires task replacement and application-specific handling. Terraform `sensitive` suppresses display, **not storage in state or plans**: avoid managing secret values in Terraform where possible, never commit state/plan files, and restrict/encrypt the eventual backend. Use clearly labeled dummy values only for local simulation; never publish expanded configuration, tokens or secret-bearing logs.
 
+## Terraform foundation (T2a)
+
+`infra/terraform` pins Terraform 1.9.8 and AWS provider 5.82.2; commit its generated lockfile. Run from the repository root; Docker downloads tooling without host installation:
+
+```sh
+docker run --rm -v "$PWD/infra/terraform:/work" -w /work hashicorp/terraform:1.9.8 init -backend=false
+docker run --rm -v "$PWD/infra/terraform:/work" -w /work hashicorp/terraform:1.9.8 fmt -check -recursive
+docker run --rm -v "$PWD/infra/terraform:/work" -w /work hashicorp/terraform:1.9.8 validate
+docker run --rm -v "$PWD/infra/terraform:/work" -w /work hashicorp/terraform:1.9.8 test
+```
+
+Tests use a mocked AWS provider (including mock-only apply), not Floci or AWS provisioning. Do not run ordinary plan/apply against AWS. No backend is configured: state would be local, sensitive and ignored. Docker creates provider cache under the ignored `.terraform` directory.
+
+| Contract | Foundation decision |
+| --- | --- |
+| Inputs | `local_emulation=true`, `local_endpoint=http://floci:4566`, `region=us-east-1`, `name=challenge`, `protect_database=false`. Region is a builder choice, with a/b AZ suffixes; verify AZ availability before any future AWS use. `local.tfvars.example` is safe to copy to an ignored `.tfvars`. |
+| Isolation | Local mode forces dummy provider credentials, disables credential/metadata/account discovery and overrides EC2/RDS/Secrets Manager/STS endpoints. Only Floci, loopback or Docker-host HTTP endpoints are accepted; no host credentials are mounted by these commands. Endpoint host resolution must remain trusted. Future service endpoints must be added explicitly in T2b before emulator use. |
+| AWS mode | Separate `local_emulation=false` requires `allow_aws=true` and a 12-digit `aws_account_id`; provider enforces that account. Credentials come from the ordinary AWS chain, never examples. This opt-in is a safety guard, not authorization to deploy. |
+| Network | Two AZs, separate public/application/database subnets. Public route to IGW; application route to one NAT in AZ a; database route is VPC-local only. NAT permits HTTPS ECR (including S3 layers), Secrets Manager, logs and optional provider calls. Single NAT is cheaper than per-AZ NAT but has an AZ dependency, cross-AZ costs and real AWS hourly charges; not production HA. |
+| Boundaries | Empty ALB ingress awaits T2b's origin restriction. ALB egress/API ingress only 3001; API egress/DB ingress only 5432; API also permits internet HTTPS through NAT. No DB egress rule. VPC resolver DNS uses AWS's implicit resolver behavior. |
+| Database | Encrypted gp3 PostgreSQL 16, 20 GiB, db.t3.micro, private, single-AZ with two-AZ subnet group and one-day backups. Demo allows deletion without final snapshot. `protect_database=true` enables deletion protection/final snapshot; repeated snapshot names need lifecycle planning. Not production HA or a restore-tested backup policy. |
+| Secrets | AWS uses RDS-managed master credentials; local DB alone uses an explicitly dummy bootstrap password in state. Seven application secret containers have seven-day recovery and no versions. Populate required values separately in T3; optional containers may stay empty and must not be injected until populated. `DATABASE_URL` needs separate construction/population; the RDS master secret JSON is not a URL or an application least-privilege DB user. |
+| Outputs | `network`: VPC, public/application subnet IDs and ALB/API/DB SG IDs; `database`: address, port, DB/user names and AWS master secret ARN (local null); `application_secret_arns`: environment-name -> whole-value ECS reference. No secret-content data sources or password outputs. |
+
+Terraform sensitivity does not encrypt state: even the local dummy bootstrap is stored there. Manage application values outside Terraform, secure eventual remote state, and never publish expanded plans/logs. Managed credential and network behavior in Floci are **untested**; T3 must record unsupported operations rather than silently weakening AWS configuration.
+
 ## Evidence and next steps
 
 | Check | T1 evidence / boundary |
@@ -65,8 +91,8 @@ Secrets Manager references keep values out of image layers and plaintext task de
 | Docker ignore regression | Observed RED against the original policy: nested dummy env/key/credential files were copied. Corrected policy passes the same synthetic-context assertion, retaining `auth.ts`, `secrets.ts` and `server.ts`. No real secrets or source fixtures are used. |
 | Host workspace typecheck/build | Both attempted; fail because `tsc` is absent from existing host dependency setup. No host dependencies installed. |
 | Isolated workspace checks | Independent verifier passed isolated Node 22 container `npm ci`, both workspaces' typecheck/build and tests (417 tests / 33 files). These are prior verification evidence, not a server/database integration run. |
-| Terraform / Floci / live app | Pending. No AWS resources, emulator application run, persistence, TLS, SPA deep-link or auth smoke has been verified here. |
+| Terraform / Floci / live app | T2a fmt/init/validate and mocked configuration assertions passed; emulator plan/apply remains pending. No AWS resources, emulator application run, persistence, TLS, SPA deep-link or auth smoke has been verified here. |
 
-Next: implement the planned Terraform with explicit local emulator overrides, then a bounded Floci workflow and synthetic-data smoke. Keep AWS intent separate from observed emulator behavior and document gaps rather than treating simulation as a real AWS deployment.
+Next: T2b extends the foundation with application serving resources and scoped IAM; T3 adds a bounded Floci workflow and synthetic-data smoke. Keep AWS intent separate from observed emulator behavior and document gaps rather than treating simulation as a real AWS deployment.
 
 Official Floci service references: [ECS](https://floci.io/docs/services/ecs/) and [CloudFront](https://floci.io/docs/services/cloudfront/). Check the selected Floci version's supported operations before implementation; these links are references, not evidence that this application has run on Floci.
