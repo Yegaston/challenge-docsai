@@ -21,7 +21,7 @@ Browser -> CloudFront -> private S3 SPA; /api/* -> public ALB -> private ECS Far
 - [x] T2b (done): Add ECR/ECS Fargate/ALB with scoped IAM and secret injection; validate configuration and focused assertions. Commit: c1892fe.
 - [x] T2c (done): Add private S3/CloudFront frontend and API routing/origin restrictions; validate configuration and focused assertions. Commit: 9c75a28 (427 diff lines including reproducible test follow-up).
 - [x] T3 (done): Add reproducible Floci deployment and smoke workflow, independently verify real local behavior and document emulator gaps. Commit: d4ac55a (802 insertions/13 deletions; accepted single larger PR).
-- [ ] T4 (in progress): Reconcile final checks/documentation, push and create PR against main with verification evidence. Native review remains stopped; user-authorized clone RDD off.
+- [x] T4 (done): Reconcile final checks/documentation, push and create PR against main with verification evidence. Documentation work-unit commit: f99b0e4. PR: https://github.com/Yegaston/challenge-docsai/pull/1. Native review remains stopped; user-authorized clone RDD off; no merge performed.
 
 ## Acceptance and verification
 - Terraform init/validate/fmt and local plan/apply where tooling permits.
@@ -60,4 +60,4 @@ Browser -> CloudFront -> private S3 SPA; /api/* -> public ALB -> private ECS Far
 - Host typecheck/build initially failed because tsc unavailable; isolated Node22 typecheck/build/test passes. No host install required. Native assessment unavailable due undeclared untracked files; treated as high risk with separate verifier. T2c native escalation retained, not approval; clone RDD off, global unchanged.
 
 ## Next step
-T4: publish authorized branch and one PR against main; report remote checks without claiming merge readiness. Keep .codegraph/, secrets, state, work-copy and image note excluded. All behavior is committed through d4ac55a.
+PR #1 is open against main. Human review is next; check remote CI without claiming merge readiness. Keep .codegraph/, secrets, state, work-copy and image note excluded. All behavior is committed through d4ac55a; f99b0e4 records checks. The live Floci stack remains running; shutdown/restart requires a separate user decision.
