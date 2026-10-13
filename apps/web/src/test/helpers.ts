@@ -1,4 +1,4 @@
-import { fireEvent, screen } from "@testing-library/react";
+import { act, fireEvent, screen } from "@testing-library/react";
 import { vi } from "vitest";
 
 export const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
@@ -48,7 +48,10 @@ export const failedAnalysis = (failureCode = "timeout", over: Record<string, unk
 export const detailResponse = (id: string, analyses: unknown[] = []) =>
   json({ ticket: { ...ticketSummary(id), analyses } });
 
-export function submitLogin(email = "demo@example.test", password = "synthetic-password") {
+export async function submitLogin(email = "demo@example.test", password = "synthetic-password") {
+  if (vi.isFakeTimers()) {
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+  } else await screen.findByLabelText("Email");
   fireEvent.change(screen.getByLabelText("Email"), { target: { value: email } });
   fireEvent.change(screen.getByLabelText("Password"), { target: { value: password } });
   fireEvent.click(screen.getByRole("button", { name: "Log in" }));
@@ -57,6 +60,8 @@ export function submitLogin(email = "demo@example.test", password = "synthetic-p
 export const baseRoutes = (): Routes => ({
   "/api/health": healthy,
   "/api/auth/login": sessionResponse,
+  "POST /api/auth/refresh": () => json({}, 401),
+  "POST /api/auth/logout": () => new Response(null, { status: 204 }),
   "/api/auth/me": identity,
 });
 

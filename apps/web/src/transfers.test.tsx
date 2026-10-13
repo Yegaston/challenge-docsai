@@ -7,7 +7,7 @@ afterEach(() => { cleanup(); window.history.replaceState(null, "", "/"); vi.unst
 async function open(role: "customer" | "support" = "customer", routes: Routes = {}) {
   window.history.replaceState(null, "", "/transfers");
   const mock = mockApi({ ...baseRoutes(), "/api/auth/me": () => json({ user: { id: "u1", email: "demo@example.test", role } }), "/api/synthetic-transfers": () => json({ transfers: [] }), ...routes });
-  render(<App />); submitLogin(); await screen.findByText("demo@example.test");
+  render(<App />); await submitLogin(); await screen.findByText("demo@example.test");
   if (role === "customer") fireEvent.click(screen.getByRole("link", { name: "Demo transfers" }));
   return mock;
 }

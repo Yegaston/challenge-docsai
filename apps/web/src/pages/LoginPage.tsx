@@ -13,7 +13,7 @@ const messages: Record<Health, string> = {
   error: "Unable to check system health. Check the API service and retry.",
 };
 export default function LoginPage() {
-  const { session, pending, error, login } = useSession();
+  const { session, pending, restoring, error, login, retry } = useSession();
   const navigate = useNavigate();
   const [health, setHealth] = useState<Health>("checking");
   const [attempt, setAttempt] = useState(0);
@@ -43,8 +43,13 @@ export default function LoginPage() {
     void login({ email: String(data.get("email")), password: String(data.get("password")) });
     form.reset();
   }
+
+  if (restoring || session) return <main role="status">Restoring session…</main>;
+
   return <main className="mx-auto flex min-h-screen max-w-2xl items-center px-6 py-12">
     <Card className="w-full space-y-6 p-8" aria-labelledby="title">
+      {restoring && <p role="status">Restoring session…</p>}
+      {error.includes("restore") && <p role="alert">{error} <Button onClick={retry}>Retry restore</Button></p>}
       <div className="space-y-2">
         <h1 id="title" className="text-3xl font-semibold tracking-tight">Support Ticket AI</h1>
         <p className="text-muted-foreground">Log in with your locally configured demo account to verify protected API access.</p>
@@ -60,7 +65,7 @@ export default function LoginPage() {
           <Input id="password" name="password" type="password" autoComplete="current-password" maxLength={256} required disabled={pending} />
           <Button type="submit" disabled={pending}>{pending ? "Logging in…" : "Log in"}</Button>
         </form>
-        {error && <p role="alert">{error}</p>}
+        {error && !error.includes("restore") && <p role="alert">{error}</p>}
       </section>
     </Card>
   </main>;

@@ -16,7 +16,7 @@ const posts = (mock: ReturnType<typeof mockApi>, path: string) => mock.mock.call
 afterEach(() => { cleanup(); window.history.replaceState(null, "", "/"); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 async function enter(routes: Record<string, () => Response | Promise<Response>> = {}, role: "customer" | "support" = "customer") {
   const fetchMock = mockApi({ ...baseRoutes(), "/api/auth/me": () => json({ user: { id: "u1", email: "demo@example.test", role } }), "/api/conversations": () => json({ conversations: role === "support" ? [row("escalated")] : [] }), ...routes });
-  render(<App />); submitLogin(); await screen.findByText("demo@example.test"); return fetchMock;
+  render(<App />); await submitLogin(); await screen.findByText("demo@example.test"); return fetchMock;
 }
 async function open(routes: Record<string, () => Response | Promise<Response>> = {}, role: "customer" | "support" = "customer") {
   const mock = await enter({ "/api/conversations": () => json({ conversations: [row()] }), [`/api/conversations/${id}`]: () => json({ ...row(), messages }), ...routes }, role);

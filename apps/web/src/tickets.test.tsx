@@ -11,7 +11,7 @@ afterEach(() => { cleanup(); window.history.replaceState(null, "", "/"); vi.useR
 async function login(routes: Routes = {}) {
   const fetchMock = mockApi({ ...baseRoutes(), "/api/tickets": emptyTickets, "/api/tickets/t1/reports": () => json({ reports: [] }), ...routes });
   render(<App />);
-  submitLogin();
+  await submitLogin();
   await screen.findByText("demo@example.test");
   fireEvent.click(screen.getByRole("link", { name: "Tickets" }));
   await waitFor(() => expect(screen.queryByText("Loading tickets…")).toBeNull());
@@ -73,20 +73,23 @@ describe("ticket history", () => {
     const fetchMock = mockApi({
       "/api/health": () => json({ status: "ok", database: "reachable" }),
       "/api/auth/login": () => json({ token: "synthetic-token", expiresAt: Date.now() + 1000 }),
+      "POST /api/auth/refresh": () => json({}, 401),
       "/api/auth/me": identity,
       "/api/tickets": () => history.promise,
     });
     render(<App />);
-    await act(async () => { submitLogin(); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    await submitLogin();
+    await act(async () => {});
     expect(screen.getByText("demo@example.test")).toBeTruthy();
     fireEvent.click(screen.getByRole("link", { name: "Tickets" }));
     const historyCall = call(fetchMock, "/api/tickets");
     await act(async () => { vi.advanceTimersByTime(1000); });
-    expect(screen.getByText("Session expired. Log in again.")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Log in" })).toBeTruthy();
+    expect(screen.getByText("Unable to restore session. Try again.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Retry restore" })).toBeTruthy();
     expect(((historyCall?.[1] as RequestInit).signal as AbortSignal).aborted).toBe(true);
     await act(async () => history.resolve(emptyTickets()));
-    expect(screen.getByText("Session expired. Log in again.")).toBeTruthy();
+    expect(screen.getByText("Unable to restore session. Try again.")).toBeTruthy();
   });
 
   it("retries after a history load failure", async () => {
