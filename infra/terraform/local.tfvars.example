@@ -1,5 +1,10 @@
 # Local only; copy to an ignored *.tfvars. No real AWS credentials.
-local_emulation = true
-local_endpoint  = "http://floci:4566"
-region          = "us-east-1"
-name            = "challenge"
+local_emulation      = true
+local_endpoint       = "http://floci:4566"
+region               = "us-east-1"
+name                 = "challenge"
+# Fixed Floci ALB alias; compose.floci.yaml must alias and allowlist it.
+local_api_origin_host = "challenge-api-alb.localhost.floci.io"
+# Bootstrap starts at 0; the deploy script raises it to 1 after pushing the
+# image and populating all seven Secrets Manager values out of band.
+api_desired_count    = 0

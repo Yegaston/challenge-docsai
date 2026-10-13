@@ -15,6 +15,12 @@ resource "aws_ecr_repository" "api" {
   encryption_configuration {
     encryption_type = "KMS"
   }
+  # Floci 2.2.0 always reports AES256 back for this KMS-configured repository,
+  # so every emulator refresh looks like a change that forces replacement.
+  # The checked-in local-only override infra/floci/local_override.tf (applied
+  # by the guarded wrapper inside the isolated infra/floci/work copy) ignores
+  # that drift in emulation only; the AWS root stays drift-aware, and changing
+  # encryption on AWS requires an explicit replace.
 }
 
 resource "aws_ecs_cluster" "api" {

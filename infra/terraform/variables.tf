@@ -49,6 +49,16 @@ variable "api_image" {
     error_message = "AWS mode requires a normal ECR image URI."
   }
 }
+variable "local_api_origin_host" {
+  type        = string
+  default     = "challenge-api-alb.localhost.floci.io"
+  description = "Fixed ALB origin hostname for local CloudFront emulation; the Floci container carries this Docker network alias and allowlists it for private-origin access. Unused on AWS."
+  validation {
+    condition     = can(regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?\\.localhost\\.floci\\.io$", var.local_api_origin_host))
+    error_message = "Local custom origin host must be a <name>.localhost.floci.io hostname; the Floci compose stack must alias and allowlist exactly this value."
+  }
+}
+
 variable "api_certificate_arn" {
   type        = string
   default     = ""

@@ -21,3 +21,5 @@ infra/terraform/**/*.plan
 infra/terraform/**/*.tfvars
 infra/terraform/**/*.tfvars.json
 infra/terraform/**/crash*.log
+infra/terraform/floci-image.txt
+infra/floci/work/

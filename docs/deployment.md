@@ -13,7 +13,7 @@ bash scripts/test-api-image.sh
 
 The script first checks Docker's ignore policy with an in-memory synthetic build context, then builds the image and checks its runtime without credentials, runtime network access, a database or AWS. Python 3 and a local Linux Docker socket at `/var/run/docker.sock` are required for the fixture generator. It streams dummy files into a disposable container's tmpfs and mounts the host Docker executable/socket to build that local context (Docker access is privileged); no repository files are created. Docker build cache/images remain as ordinary build artifacts. The fixture uses Docker's legacy builder when buildx is unavailable in the helper container; `bash scripts/test-api-image.sh --ignore-only` runs just the regression. Trailing secret exclusions override recursive source allow rules: nested `.env` variants, keys and credential files are excluded while application modules (including `secrets.ts`) remain included. These filename rules are defense in depth, not detection of secrets embedded in ordinary source files. On ARM hosts, an amd64 builder/emulation is required. Terraform must select Fargate `X86_64` / `LINUX`; publish this image to the planned ECR repository later. No registry publishing or deployment is performed by these commands.
 
-## Target architecture (planned)
+## Target architecture (implemented in Terraform)
 
 ```text
 Browser --HTTPS--> CloudFront
@@ -82,7 +82,7 @@ CloudFront note: implemented in T2c (below). In AWS mode the ALB ingress is now 
 | Contract | Foundation decision |
 | --- | --- |
 | Inputs | `local_emulation=true`, `local_endpoint=http://floci:4566`, `region=us-east-1`, `name=challenge`, `protect_database=false`. Region is a builder choice, with a/b AZ suffixes; verify AZ availability before any future AWS use. `local.tfvars.example` is safe to copy to an ignored `.tfvars`. |
-| Isolation | Local mode forces dummy provider credentials, disables credential/metadata/account discovery, forces S3 path-style addressing and overrides EC2/ECR/ELBv2/IAM/Logs/RDS/Secrets Manager/STS/S3/CloudFront endpoints. Only Floci, loopback or Docker-host HTTP endpoints are accepted; no host credentials are mounted by these commands. Endpoint host resolution must remain trusted. T3 must extend the T2b/T2c endpoint allowlist for any further emulator service before use. |
+| Isolation | Local mode forces dummy provider credentials, disables credential/metadata/account discovery, forces S3 path-style addressing and overrides EC2/ECR/ELBv2/IAM/Logs/RDS/Secrets Manager/STS/S3/CloudFront endpoints. Only Floci, loopback or Docker-host HTTP endpoints are accepted; no host credentials are mounted by these commands. Endpoint host resolution must remain trusted. Any additional emulator service must have its endpoint explicitly redirected before use. |
 | AWS mode | Separate `local_emulation=false` requires `allow_aws=true` and a 12-digit `aws_account_id`; provider enforces that account. Credentials come from the ordinary AWS chain, never examples. This opt-in is a safety guard, not authorization to deploy. |
 | Network | Two AZs, separate public/application/database subnets. Public route to IGW; application route to one NAT in AZ a; database route is VPC-local only. NAT permits HTTPS ECR (including S3 layers), Secrets Manager, logs and optional provider calls. Single NAT is cheaper than per-AZ NAT but has an AZ dependency, cross-AZ costs and real AWS hourly charges; not production HA. |
 | Boundaries | Empty ALB ingress awaits T2b's origin restriction. ALB egress/API ingress only 3001; API egress/DB ingress only 5432; API also permits internet HTTPS through NAT. No DB egress rule. VPC resolver DNS uses AWS's implicit resolver behavior. |
@@ -101,8 +101,8 @@ Terraform sensitivity does not encrypt state: even the local dummy bootstrap is 
 | Behaviors | Default behavior serves the S3 SPA (`redirect-to-https`); exact `/api` and `/api/*` ordered behaviors serve the ALB origin with all seven HTTP methods (`https-only`). |
 | Caching | Two explicit custom cache policies (no reliance on managed policies, which are poorly modeled locally): `spa-cache` respects origin `Cache-Control` up to one year with an empty default TTL, `api-no-cache` has zero TTL on every axis and forwards all cookies, all query strings and `Authorization`/`Content-Type`/`Origin` headers. No authenticated API response is cached. |
 | SPA rewrite | `spa-rewrite.js` is a CloudFront viewer-request function attached **only** to the S3 default behavior: root and trailing-slash URIs resolve to `<uri>index.html`, extensionless client routes to `/index.html`, assets keep their path, and `/api`/`/api/*` are guarded and never rewritten. Route cases pass a reproducible, dependency-free Node test (`infra/terraform/tests/spa-rewrite.test.mjs`; exact command below). |
-| Error masking | No `custom_error_response` blocks exist; API 401/403/404/5xx and missing assets reach the browser unchanged. Deep links and missing assets are still to be verified in the T3 smoke workflow. |
-| API origin | Local emulation uses the autogenerated ALB DNS over plain HTTP. AWS mode requires `api_hostname` (new variable) as an HTTPS origin: the hostname must resolve to the ALB via DNS **before** deployment and must match `api_certificate_arn`; CloudFront never presents TLS to the autogenerated ALB DNS as if the certificate matched. |
+| Error masking | No `custom_error_response` blocks exist; API 401/403/404/5xx and missing assets reach the browser unchanged. The smoke workflow checks the documented live SPA-routing gap; Node tests verify the rewrite logic. |
+| API origin | Local emulation uses the fixed allowlisted Docker alias `challenge-api-alb.localhost.floci.io` over plain HTTP. AWS mode requires `api_hostname` (new variable) as an HTTPS origin: the hostname must resolve to the ALB via DNS **before** deployment and must match `api_certificate_arn`; CloudFront never presents TLS to the autogenerated ALB DNS as if the certificate matched. |
 | Origin restriction | AWS ALB ingress uses the `com.amazonaws.global.cloudfront.origin-facing` managed prefix list (never `0.0.0.0/0`). **Shared CDN tenant limitation:** that prefix list is shared by all CloudFront customers, so other tenants' distributions can reach the ALB; a shared secret header via CloudFront origin custom headers would close this but adds a sensitive, state-stored value and is intentionally not implemented here. Local Floci restriction semantics differ and are unverified. |
 | AUTH_EXTERNAL_ORIGIN | Nonsecret container environment derived from the distribution domain (`https://<distribution>.cloudfront.net`) without a Terraform cycle; never a secret value, never in the SPA bundle. Existing secret-map names are unchanged and no secret data source was needed. |
 | Bootstrap | `api_desired_count` remains 0; nothing else in the T2b service contract changed. |
@@ -117,6 +117,120 @@ docker run --rm --network none \
   -v "$PWD/infra/terraform/tests:/t:ro" \
   -w /t node:22-alpine node --test /t/spa-rewrite.test.mjs
 ```
+
+## Floci deployment workflow (T3)
+
+`compose.floci.yaml` runs Floci 2.2.0 pinned by image digest on a fixed
+Docker network (`floci-challenge-net`) with the Docker socket mounted so the
+emulator can launch ECS task and RDS containers, loopback-only `127.0.0.1:4566`,
+and a named state volume. The development Compose stack is untouched. The
+emulator's CloudFront custom-origin allowlist is configured for exactly one
+fixed private hostname, `challenge-api-alb.localhost.floci.io`, which the same
+container also carries as a Docker network alias: in local mode Terraform uses
+it as the ALB origin (`local_api_origin_host`), so the ALB dataplane, RDS
+proxy and CloudFront viewer serving are all reachable without a Floci restart.
+
+`scripts/floci-deploy.sh` drives the whole local deployment from containers
+(Terraform 1.9.8, AWS CLI pinned by digest, Node 22); `terraform`/`aws` are
+never required on the host. Every wrapper Terraform command runs against an
+isolated, gitignored working copy `infra/floci/work/` — a copy of the AWS root
+config (files, provider lockfile, `spa-rewrite.js`) plus the checked-in
+local-only override `infra/floci/local_override.tf`, copied in by the wrapper.
+The shared AWS root `infra/terraform` is never written by the wrapper, never
+receives any `*_override.tf`, and keeps no state: real-AWS Terraform stays
+drift-aware there. Terraform `lifecycle` cannot be dynamic, hence the
+file-based override. The wrapper refuses to run if any `*_override.tf` appears
+in the AWS root.
+
+```sh
+bash scripts/floci-deploy.sh up        # start Floci, wait for health
+bash scripts/floci-deploy.sh init      # terraform init + ECR import if needed
+bash scripts/floci-deploy.sh plan      # terraform plan against the emulator
+bash scripts/floci-deploy.sh image     # build amd64 API image, push to Floci ECR
+bash scripts/floci-deploy.sh secrets   # populate the seven secrets out of band
+bash scripts/floci-deploy.sh frontend  # build SPA in an isolated container, upload with cache headers
+bash scripts/floci-deploy.sh start     # terraform apply with desired_count=1
+bash scripts/floci-deploy.sh all       # the above in order
+bash scripts/floci-smoke.sh            # local smoke checks
+bash scripts/test-floci-workflow.sh    # deterministic guard tests
+```
+
+The scripts hard-refuse inherited AWS credentials (`AWS_ACCESS_KEY_ID`,
+`AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, profiles/config) and any
+non-local `AWS_ENDPOINT_URL`, use only explicit dummy credentials, and never
+run destroy/prune/remove/kill commands. Secret values are generated into
+`mktemp -d` files (mode 700) passed to the CLI via `file://` and shredded
+afterwards; they are never printed, committed or passed through Terraform.
+`OPENROUTER_API_KEY` stays a clearly labeled dummy unless you export
+`FLOCI_OPENROUTER_KEY_FILE` pointing at a local protected file; smoke checks
+never call the external AI provider. Seed credentials are kept stable once
+set: the API seeds accounts only when the database is fresh and never rotates
+existing passwords, so regenerating `DEMO_PASSWORD` would strand the seeded
+demo account.
+
+State and effective configuration live only in the ignored working copy:
+`infra/floci/work/terraform.tfstate` is migrated once from the legacy
+`infra/terraform` state with every resource address preserved (the wrapper
+copies, never overwrites; the legacy root state file remains on disk only as
+the one-time migration source and must not be used for further plan/apply).
+The nonsecret effective running config — the pushed image URI and the
+desired count — is persisted by `init` (synced from the live emulator
+service) and by `start` into the ignored `infra/floci/work/local.tfvars`, so
+a normal plan after a successful start never proposes scaling to zero or
+falling back to the placeholder image. Bootstrap is still explicitly zero:
+the committed example keeps `api_desired_count = 0` until the image is pushed
+and the seven secrets exist, and the first `all` apply runs before either
+exists. No secret value or plan output is serialized outside the emulator's
+own Secrets Manager and the protected temp-file flow.
+
+### Verified local behavior (Floci 2.2.0, not AWS)
+
+`scripts/floci-smoke.sh` passes 15/15 locally: ALB `/api/health` returns
+`{"status":"ok","database":"reachable"}` through the emulated ALB to the ECS
+task and PostgreSQL; CloudFront viewer serving (Floci's host-routed
+distribution filter) forwards `/api/*` to the ALB origin with the exact
+no-cache policy; SPA `index.html` and hashed assets are served from the
+private S3 origin through OAC with the configured cache headers; the
+PostgreSQL proxy reports all 12 migrated tables; one ECS task runs the image
+that was actually pushed to the emulated ECR (digest-compared, not just a
+repository); the task definition references all seven Secrets Manager ARNs;
+and login, authenticated `/api/auth/me` and logout succeed with the seeded
+dummy credentials through the emulated ALB.
+
+### Emulator gaps (asserted, not hidden)
+
+- **`cloudfront-function-not-executed`:** Floci stores but does not execute
+  CloudFront functions, so `/` and extensionless deep links (`/tickets/123`)
+  stay 404 in emulation. The smoke script asserts exactly this gap; the
+  rewrite itself is verified only by the Node route test. Deployed on AWS the
+  viewer-request function would resolve these routes.
+- **`https-trust-boundary`:** emulation is plain HTTP. `NODE_ENV=production`
+  makes refresh cookies Secure, so browser-level session persistence and
+  CloudFront HTTPS behavior are not verified locally; login/me/logout pass
+  only as an API-level contract over the emulated HTTP path. Enable Floci TLS
+  with a trusted CA for a browser-faithful check.
+- **In-memory service state:** a Floci restart wipes every emulated service
+  except the ECR registry container. Re-run the deploy workflow after any
+  Floci restart; the workflow re-imports the surviving ECR repository into
+  fresh Terraform state. Orphaned `floci-aws-*` workload containers from an
+  older emulator run can be removed manually if desired; the scripts never do.
+- **Provider drift:** Floci reports security-group references with an account
+  prefix, RDS storage as `gp2`, and CloudFront function code base64-encoded,
+  so re-plans show harmless in-place repairs; plans are therefore not claimed
+  fully idempotent, and these residual non-destructive updates are accepted
+  and documented. The two drift cases that would fail every later local apply
+  (function code republish, ECR repository replacement) are ignored by the
+  checked-in local-only override `infra/floci/local_override.tf`, applied by
+  the guarded wrapper only inside `infra/floci/work/`. The AWS root keeps no
+  overrides, so AWS stays drift-aware: normal applies update function code;
+  changing ECR encryption requires repository replacement.
+- **DB endpoint shape:** Floci reports the RDS address as the emulator
+  container's IP; the real connectivity is Floci's PostgreSQL proxy on port
+  7001, which the workflow uses (`@floci:7001`) because the task container
+  resolves the compose service name on the shared network.
+- **CloudFront/AWS invariants:** the zero-TTL forwarding policy, OAC signing
+  and origin restriction semantics are exercised only against the emulator;
+  passing these smoke checks is not AWS acceptance evidence.
 
 ## Evidence and next steps
 
