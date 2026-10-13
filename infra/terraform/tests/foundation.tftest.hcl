@@ -6,6 +6,8 @@ mock_provider "aws" {
   mock_resource "aws_db_instance" {
     defaults = { master_user_secret = [{ secret_arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:mock", secret_status = "active", kms_key_id = "mock" }] }
   }
+  mock_resource "aws_cloudfront_function" { defaults = { arn = "arn:aws:cloudfront::123456789012:function/mock" } }
+  mock_data "aws_ec2_managed_prefix_list" { defaults = { id = "pl-cloudfront-origin", name = "com.amazonaws.global.cloudfront.origin-facing" } }
 }
 
 run "reject_remote_endpoint" {
@@ -20,7 +22,7 @@ run "reject_unacknowledged_aws" {
     api_image           = "123456789012.dkr.ecr.us-east-1.amazonaws.com/challenge-api"
     api_certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/mock"
   }
-  expect_failures = [var.allow_aws]
+  expect_failures = [var.allow_aws, var.api_hostname]
 }
 
 run "foundation" {
@@ -55,6 +57,7 @@ run "aws_credentials" {
     allow_aws           = true
     api_image           = "123456789012.dkr.ecr.us-east-1.amazonaws.com/challenge-api"
     api_certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/mock"
+    api_hostname        = "api.example.com"
   }
   assert {
     condition     = aws_db_instance.postgres.manage_master_user_password && aws_db_instance.postgres.password == null

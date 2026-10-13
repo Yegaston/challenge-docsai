@@ -58,6 +58,16 @@ variable "api_certificate_arn" {
     error_message = "An insecure plain-HTTP AWS deployment is not a production-ready configuration; provide a certificate."
   }
 }
+variable "api_hostname" {
+  type        = string
+  default     = ""
+  description = "Public hostname for the CloudFront -> ALB HTTPS origin; DNS must point it at the ALB and it must match api_certificate_arn. Empty only for local emulation."
+  validation {
+    condition     = var.local_emulation || can(regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$", var.api_hostname))
+    error_message = "AWS mode requires a hostname that matches the ALB certificate; see docs/deployment.md DNS prerequisite."
+  }
+}
+
 variable "api_desired_count" {
   type        = number
   default     = 0

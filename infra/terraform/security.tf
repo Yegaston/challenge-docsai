@@ -45,8 +45,8 @@ resource "aws_vpc_security_group_egress_rule" "api_https" {
   from_port         = 443
   to_port           = 443
 }
-# Internet-facing bootstrap is temporary: T2c narrows these to CloudFront
-# managed prefixes. HTTP exists only for local emulation.
+# Local emulation only: the Floci ALB listener stays plain HTTP and isolated
+# from the AWS-mode TLS rule below; local Floci restriction semantics differ.
 resource "aws_vpc_security_group_ingress_rule" "alb_local_http" {
   count             = var.local_emulation ? 1 : 0
   security_group_id = aws_security_group.alb.id
@@ -55,10 +55,21 @@ resource "aws_vpc_security_group_ingress_rule" "alb_local_http" {
   from_port         = 80
   to_port           = 80
 }
-resource "aws_vpc_security_group_ingress_rule" "alb_https" {
+
+# AWS mode: ALB ingress only from the CloudFront origin-facing managed prefix
+# list, never 0.0.0.0/0. The prefix list is shared across CloudFront tenants;
+# the shared-CDN-tenant limitation is documented in docs/deployment.md.
+data "aws_ec2_managed_prefix_list" "cloudfront_origin" {
+  count = var.local_emulation ? 0 : 1
+  filter {
+    name   = "prefix-list-name"
+    values = ["com.amazonaws.global.cloudfront.origin-facing"]
+  }
+}
+resource "aws_vpc_security_group_ingress_rule" "alb_aws_https" {
   count             = var.local_emulation ? 0 : 1
   security_group_id = aws_security_group.alb.id
-  cidr_ipv4         = "0.0.0.0/0"
+  prefix_list_id    = var.local_emulation ? null : try(data.aws_ec2_managed_prefix_list.cloudfront_origin[0].id, null)
   ip_protocol       = "tcp"
   from_port         = 443
   to_port           = 443

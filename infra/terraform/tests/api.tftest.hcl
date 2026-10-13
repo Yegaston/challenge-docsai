@@ -6,6 +6,8 @@ mock_provider "aws" {
   mock_resource "aws_db_instance" {
     defaults = { master_user_secret = [{ secret_arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:mock", secret_status = "active", kms_key_id = "mock" }] }
   }
+  mock_resource "aws_cloudfront_function" { defaults = { arn = "arn:aws:cloudfront::123456789012:function/mock" } }
+  mock_data "aws_ec2_managed_prefix_list" { defaults = { id = "pl-cloudfront-origin", name = "com.amazonaws.global.cloudfront.origin-facing" } }
 }
 
 run "fargate_architecture" {
@@ -71,7 +73,7 @@ run "reject_insecure_aws_deployment" {
     allow_aws       = true
     aws_account_id  = "123456789012"
   }
-  expect_failures = [var.api_certificate_arn, var.api_image]
+  expect_failures = [var.api_certificate_arn, var.api_image, var.api_hostname]
 }
 
 run "reject_invalid_aws_image" {
@@ -81,9 +83,18 @@ run "reject_invalid_aws_image" {
     allow_aws           = true
     aws_account_id      = "123456789012"
     api_certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/mock"
+    api_hostname        = "api.example.com"
     api_image           = "floci-challenge-api:latest"
   }
   expect_failures = [var.api_image]
+}
+
+run "external_origin_env" {
+  command = apply
+  assert {
+    condition     = [for e in jsondecode(aws_ecs_task_definition.api.container_definitions)[0].environment : e.value if e.name == "AUTH_EXTERNAL_ORIGIN"][0] == "https://${aws_cloudfront_distribution.frontend.domain_name}"
+    error_message = "AUTH_EXTERNAL_ORIGIN is a nonsecret derived from the CloudFront domain, never a secret or SPA value."
+  }
 }
 
 run "aws_tls_and_ecr_image" {
@@ -94,6 +105,7 @@ run "aws_tls_and_ecr_image" {
     aws_account_id      = "123456789012"
     api_image           = "123456789012.dkr.ecr.us-east-1.amazonaws.com/challenge-api"
     api_certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/mock"
+    api_hostname        = "api.example.com"
   }
   assert {
     condition     = aws_lb_listener.api[0].port == 443 && aws_lb_listener.api[0].protocol == "HTTPS" && aws_lb_listener.api[0].certificate_arn == var.api_certificate_arn && aws_lb_listener.api[0].ssl_policy != null

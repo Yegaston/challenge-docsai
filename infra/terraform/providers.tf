@@ -12,9 +12,11 @@ provider "aws" {
   skip_metadata_api_check     = var.local_emulation
   skip_requesting_account_id  = var.local_emulation
   allowed_account_ids         = var.local_emulation ? null : [var.aws_account_id]
+  s3_use_path_style           = var.local_emulation
   dynamic "endpoints" {
     for_each = var.local_emulation ? [var.local_endpoint] : []
     content {
+      cloudfront     = endpoints.value
       ec2            = endpoints.value
       ecr            = endpoints.value
       ecs            = endpoints.value
@@ -22,6 +24,7 @@ provider "aws" {
       iam            = endpoints.value
       logs           = endpoints.value
       rds            = endpoints.value
+      s3             = endpoints.value
       secretsmanager = endpoints.value
       sts            = endpoints.value
     }

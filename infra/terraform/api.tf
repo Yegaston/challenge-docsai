@@ -47,6 +47,7 @@ resource "aws_ecs_task_definition" "api" {
     environment = [
       { name = "NODE_ENV", value = "production" },
       { name = "PORT", value = "3001" },
+      { name = "AUTH_EXTERNAL_ORIGIN", value = local.external_origin },
     ]
     secrets = [for k, s in aws_secretsmanager_secret.application : { name = k, valueFrom = s.arn }]
     healthCheck = {

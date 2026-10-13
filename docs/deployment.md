@@ -1,6 +1,6 @@
 # AWS-shaped deployment with Floci
 
-The accepted target is a private S3 SPA behind CloudFront, with `/api/*` routed through an ALB to private ECS Fargate tasks and private RDS PostgreSQL. **The production API image and Terraform network/data/secret foundation are implemented.** ECS/ALB/ECR, frontend delivery and a reproducible Floci deployment/smoke workflow remain planned. Development Compose remains unchanged.
+The accepted target is a private S3 SPA behind CloudFront, with `/api/*` routed through an ALB to private ECS Fargate tasks and private RDS PostgreSQL. **The production API image, Terraform network/data/secret foundation, ECS/ALB/ECR API serving and frontend delivery are implemented in Terraform; only a reproducible Floci deployment/smoke workflow remains.** Development Compose remains unchanged.
 
 ## Build and inspect the API
 
@@ -27,7 +27,7 @@ Browser --HTTPS--> CloudFront
 | --- | --- |
 | Fargate, not EC2 | Runs containers without managing EC2 instances, AMIs or host patching. Private tasks have no public IP. Floci models this with Docker, not actual AWS Fargate hardware or isolation. No EC2 or Amplify resources are planned. |
 | CloudFront | Public TLS entry point and cache for static assets, with separate origins/behaviors for SPA and API. It is not a replacement for the API load balancer. |
-| Private S3 | Block public access; allow CloudFront origin access control (OAC) to read only this bucket. Use the S3 REST origin, not a public website endpoint. |
+| Private S3 | Block public access; allow CloudFront origin access control (OAC) to read only this bucket (implemented with an ARN-scoped bucket policy). Use the S3 REST origin, not a public website endpoint. |
 | Public ALB | Receives the CloudFront API behavior and balances to an IP target group for Fargate. Health checks use `/api/health`; 200 means PostgreSQL is reachable, 503 means unhealthy. ALB is public by design; restrict origin access rather than assuming CloudFront hides it. |
 | Private subnets | ECS and RDS live outside public subnets. Task ingress on 3001 comes only from the ALB security group; PostgreSQL ingress on 5432 comes only from the task security group. RDS must not be publicly accessible. |
 | Outbound access | Private tasks still need ECR image pulls, logs and secret retrieval; plan suitable VPC endpoints or NAT. Optional OpenRouter calls need controlled internet egress. Private does not mean disconnected. |
@@ -77,12 +77,12 @@ Bootstrap contract: `api_desired_count` defaults to 0 until the image is pushed 
 
 Image contract: `api_image` must be a locally pulled registry URI during emulation (for example `floci-challenge-api:latest`) or a normal AWS ECR URI on AWS. `api_certificate_arn` is empty only for local HTTP emulation; AWS mode rejects plain HTTP as non-production-ready and requires TLS termination on the ALB.
 
-CloudFront note: the ALB currently accepts internet traffic on its listener port and reports `api.cloudfront_restriction_pending = true`. The frontend unit narrows ALB ingress to CloudFront managed prefixes and verifies cookie/header forwarding; do not treat the current setup as a restricted production route.
+CloudFront note: implemented in T2c (below). In AWS mode the ALB ingress is now the CloudFront origin-facing managed prefix list; in local emulation the ALB stays plain HTTP on `0.0.0.0/0`, explicitly isolated.
 
 | Contract | Foundation decision |
 | --- | --- |
 | Inputs | `local_emulation=true`, `local_endpoint=http://floci:4566`, `region=us-east-1`, `name=challenge`, `protect_database=false`. Region is a builder choice, with a/b AZ suffixes; verify AZ availability before any future AWS use. `local.tfvars.example` is safe to copy to an ignored `.tfvars`. |
-| Isolation | Local mode forces dummy provider credentials, disables credential/metadata/account discovery and overrides EC2/RDS/Secrets Manager/STS endpoints. Only Floci, loopback or Docker-host HTTP endpoints are accepted; no host credentials are mounted by these commands. Endpoint host resolution must remain trusted. Future service endpoints must be added explicitly in T2b before emulator use. |
+| Isolation | Local mode forces dummy provider credentials, disables credential/metadata/account discovery, forces S3 path-style addressing and overrides EC2/ECR/ELBv2/IAM/Logs/RDS/Secrets Manager/STS/S3/CloudFront endpoints. Only Floci, loopback or Docker-host HTTP endpoints are accepted; no host credentials are mounted by these commands. Endpoint host resolution must remain trusted. T3 must extend the T2b/T2c endpoint allowlist for any further emulator service before use. |
 | AWS mode | Separate `local_emulation=false` requires `allow_aws=true` and a 12-digit `aws_account_id`; provider enforces that account. Credentials come from the ordinary AWS chain, never examples. This opt-in is a safety guard, not authorization to deploy. |
 | Network | Two AZs, separate public/application/database subnets. Public route to IGW; application route to one NAT in AZ a; database route is VPC-local only. NAT permits HTTPS ECR (including S3 layers), Secrets Manager, logs and optional provider calls. Single NAT is cheaper than per-AZ NAT but has an AZ dependency, cross-AZ costs and real AWS hourly charges; not production HA. |
 | Boundaries | Empty ALB ingress awaits T2b's origin restriction. ALB egress/API ingress only 3001; API egress/DB ingress only 5432; API also permits internet HTTPS through NAT. No DB egress rule. VPC resolver DNS uses AWS's implicit resolver behavior. |
@@ -91,6 +91,32 @@ CloudFront note: the ALB currently accepts internet traffic on its listener port
 | Outputs | `network`: VPC, public/application subnet IDs and ALB/API/DB SG IDs; `database`: address, port, DB/user names and AWS master secret ARN (local null); `application_secret_arns`: environment-name -> whole-value ECS reference. No secret-content data sources or password outputs. |
 
 Terraform sensitivity does not encrypt state: even the local dummy bootstrap is stored there. Manage application values outside Terraform, secure eventual remote state, and never publish expanded plans/logs. Managed credential and network behavior in Floci are **untested**; T3 must record unsupported operations rather than silently weakening AWS configuration.
+
+## Frontend serving state (T2c)
+
+`infra/terraform/frontend.tf` adds a private, SSE-S3-encrypted `${name}-frontend` bucket (all four public-access blocks enabled) reachable only through CloudFront origin access control: the bucket policy grants `s3:GetObject` to `cloudfront.amazonaws.com` conditioned on this distribution's ARN. Terraform manages no bucket objects; the T3 workflow uploads the built SPA.
+
+| Contract | Frontend decision |
+| --- | --- |
+| Behaviors | Default behavior serves the S3 SPA (`redirect-to-https`); exact `/api` and `/api/*` ordered behaviors serve the ALB origin with all seven HTTP methods (`https-only`). |
+| Caching | Two explicit custom cache policies (no reliance on managed policies, which are poorly modeled locally): `spa-cache` respects origin `Cache-Control` up to one year with an empty default TTL, `api-no-cache` has zero TTL on every axis and forwards all cookies, all query strings and `Authorization`/`Content-Type`/`Origin` headers. No authenticated API response is cached. |
+| SPA rewrite | `spa-rewrite.js` is a CloudFront viewer-request function attached **only** to the S3 default behavior: root and trailing-slash URIs resolve to `<uri>index.html`, extensionless client routes to `/index.html`, assets keep their path, and `/api`/`/api/*` are guarded and never rewritten. Route cases pass a reproducible, dependency-free Node test (`infra/terraform/tests/spa-rewrite.test.mjs`; exact command below). |
+| Error masking | No `custom_error_response` blocks exist; API 401/403/404/5xx and missing assets reach the browser unchanged. Deep links and missing assets are still to be verified in the T3 smoke workflow. |
+| API origin | Local emulation uses the autogenerated ALB DNS over plain HTTP. AWS mode requires `api_hostname` (new variable) as an HTTPS origin: the hostname must resolve to the ALB via DNS **before** deployment and must match `api_certificate_arn`; CloudFront never presents TLS to the autogenerated ALB DNS as if the certificate matched. |
+| Origin restriction | AWS ALB ingress uses the `com.amazonaws.global.cloudfront.origin-facing` managed prefix list (never `0.0.0.0/0`). **Shared CDN tenant limitation:** that prefix list is shared by all CloudFront customers, so other tenants' distributions can reach the ALB; a shared secret header via CloudFront origin custom headers would close this but adds a sensitive, state-stored value and is intentionally not implemented here. Local Floci restriction semantics differ and are unverified. |
+| AUTH_EXTERNAL_ORIGIN | Nonsecret container environment derived from the distribution domain (`https://<distribution>.cloudfront.net`) without a Terraform cycle; never a secret value, never in the SPA bundle. Existing secret-map names are unchanged and no secret data source was needed. |
+| Bootstrap | `api_desired_count` remains 0; nothing else in the T2b service contract changed. |
+| Floci gaps | Floci docs state CloudFront functions are **stored but not executed** locally, so SPA deep links are **not tested in Floci**; the viewer rewrite is verified only by the Node route test. OAC signing, prefix-list enforcement and TLS behavior are likewise untested locally. T3 must allowlist the exact custom private origin hostnames before emulator use. |
+| Outputs | New `frontend` output for the workflow: bucket name, distribution id/domain, external origin and API behavior patterns. `api` output drops `cloudfront_restriction_pending` (now `alb_ingress_restricted_to_cloudfront`). |
+
+Reproducible SPA-rewrite test (Node 22 disposable container, no network, both source files mounted read-only):
+
+```sh
+docker run --rm --network none \
+  -v "$PWD/infra/terraform/spa-rewrite.js:/spa-rewrite.js:ro" \
+  -v "$PWD/infra/terraform/tests:/t:ro" \
+  -w /t node:22-alpine node --test /t/spa-rewrite.test.mjs
+```
 
 ## Evidence and next steps
 
