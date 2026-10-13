@@ -45,3 +45,21 @@ resource "aws_vpc_security_group_egress_rule" "api_https" {
   from_port         = 443
   to_port           = 443
 }
+# Internet-facing bootstrap is temporary: T2c narrows these to CloudFront
+# managed prefixes. HTTP exists only for local emulation.
+resource "aws_vpc_security_group_ingress_rule" "alb_local_http" {
+  count             = var.local_emulation ? 1 : 0
+  security_group_id = aws_security_group.alb.id
+  cidr_ipv4         = "0.0.0.0/0"
+  ip_protocol       = "tcp"
+  from_port         = 80
+  to_port           = 80
+}
+resource "aws_vpc_security_group_ingress_rule" "alb_https" {
+  count             = var.local_emulation ? 0 : 1
+  security_group_id = aws_security_group.alb.id
+  cidr_ipv4         = "0.0.0.0/0"
+  ip_protocol       = "tcp"
+  from_port         = 443
+  to_port           = 443
+}

@@ -21,3 +21,16 @@ output "application_secret_arns" {
   description = "Whole-value ECS valueFrom references; versions must be populated separately."
   value       = { for k, s in aws_secretsmanager_secret.application : k => s.arn }
 }
+output "api" {
+  description = "ALB origin for the frontend unit; cloudfront_restriction_pending is true until T2c restricts ALB ingress to CloudFront prefixes and cookie/header forwarding is verified."
+  value = {
+    repository_url                 = aws_ecr_repository.api.repository_url
+    cluster_name                   = aws_ecs_cluster.api.name
+    service_name                   = aws_ecs_service.api.name
+    alb_dns_name                   = aws_lb.api.dns_name
+    listener_port                  = var.local_emulation ? 80 : 443
+    listener_protocol              = var.local_emulation ? "HTTP" : "HTTPS"
+    health_check_path              = aws_lb_target_group.api.health_check[0].path
+    cloudfront_restriction_pending = true
+  }
+}

@@ -1,4 +1,8 @@
 mock_provider "aws" {
+  mock_resource "aws_iam_role" { defaults = { arn = "arn:aws:iam::123456789012:role/mock" } }
+  mock_resource "aws_lb" { defaults = { arn = "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/mock/abc" } }
+  mock_resource "aws_lb_target_group" { defaults = { arn = "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/mock/abc" } }
+  mock_resource "aws_ecs_task_definition" { defaults = { arn = "arn:aws:ecs:us-east-1:123456789012:task-definition/mock:1" } }
   mock_resource "aws_db_instance" {
     defaults = { master_user_secret = [{ secret_arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:mock", secret_status = "active", kms_key_id = "mock" }] }
   }
@@ -11,7 +15,11 @@ run "reject_remote_endpoint" {
 }
 run "reject_unacknowledged_aws" {
   command = plan
-  variables { local_emulation = false }
+  variables {
+    local_emulation     = false
+    api_image           = "123456789012.dkr.ecr.us-east-1.amazonaws.com/challenge-api"
+    api_certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/mock"
+  }
   expect_failures = [var.allow_aws]
 }
 
@@ -42,9 +50,11 @@ run "foundation" {
 run "aws_credentials" {
   command = apply
   variables {
-    local_emulation = false
-    aws_account_id  = "123456789012"
-    allow_aws       = true
+    local_emulation     = false
+    aws_account_id      = "123456789012"
+    allow_aws           = true
+    api_image           = "123456789012.dkr.ecr.us-east-1.amazonaws.com/challenge-api"
+    api_certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/mock"
   }
   assert {
     condition     = aws_db_instance.postgres.manage_master_user_password && aws_db_instance.postgres.password == null

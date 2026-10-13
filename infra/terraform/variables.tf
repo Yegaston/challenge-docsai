@@ -40,6 +40,34 @@ variable "name" {
     error_message = "Use 2-26 lowercase alphanumeric/hyphen characters, starting with a letter."
   }
 }
+variable "api_image" {
+  type        = string
+  default     = "floci-challenge-api:latest"
+  description = "Container image: locally pulled registry URI during emulation, ECR URI on AWS."
+  validation {
+    condition     = var.local_emulation || length(regexall("^[0-9]{12}\\.dkr\\.ecr\\.[a-z0-9-]+\\.amazonaws\\.com/.+", var.api_image)) > 0
+    error_message = "AWS mode requires a normal ECR image URI."
+  }
+}
+variable "api_certificate_arn" {
+  type        = string
+  default     = ""
+  description = "ACM certificate ARN for the ALB HTTPS listener; empty only for local HTTP emulation."
+  validation {
+    condition     = var.local_emulation || var.api_certificate_arn != ""
+    error_message = "An insecure plain-HTTP AWS deployment is not a production-ready configuration; provide a certificate."
+  }
+}
+variable "api_desired_count" {
+  type        = number
+  default     = 0
+  description = "Bootstrap starts at zero until the image is pushed and secrets are populated."
+  validation {
+    condition     = var.api_desired_count >= 0 && floor(var.api_desired_count) == var.api_desired_count
+    error_message = "Desired count must be a non-negative integer."
+  }
+}
+
 variable "protect_database" {
   type        = bool
   default     = false

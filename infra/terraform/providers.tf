@@ -16,6 +16,11 @@ provider "aws" {
     for_each = var.local_emulation ? [var.local_endpoint] : []
     content {
       ec2            = endpoints.value
+      ecr            = endpoints.value
+      ecs            = endpoints.value
+      elbv2          = endpoints.value
+      iam            = endpoints.value
+      logs           = endpoints.value
       rds            = endpoints.value
       secretsmanager = endpoints.value
       sts            = endpoints.value

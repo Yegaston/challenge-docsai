@@ -69,6 +69,16 @@ docker run --rm -v "$PWD/infra/terraform:/work" -w /work hashicorp/terraform:1.9
 
 Tests use a mocked AWS provider (including mock-only apply), not Floci or AWS provisioning. Do not run ordinary plan/apply against AWS. No backend is configured: state would be local, sensitive and ignored. Docker creates provider cache under the ignored `.terraform` directory.
 
+### API serving state (T2b)
+
+`infra/terraform/api.tf` adds the ECR repository (immutable tags, scan-on-push, KMS), an ECS Fargate cluster/task/service (x86_64 Linux, 256/512, awsvpc in the private application subnets, public IP disabled) and a public ALB forwarding IP targets to API port 3001 with the real `/api/health` route as the target health check. Execution and task roles are separate: the execution role carries the managed ECR/log policy plus `GetSecretValue` scoped to the seven application secret ARNs; the task role starts with no permissions and is the future grant point.
+
+Bootstrap contract: `api_desired_count` defaults to 0 until the image is pushed and all seven Secrets Manager values exist. `DATABASE_URL` is populated out of band and is never the RDS-managed master secret JSON; Terraform never writes or prints secret values.
+
+Image contract: `api_image` must be a locally pulled registry URI during emulation (for example `floci-challenge-api:latest`) or a normal AWS ECR URI on AWS. `api_certificate_arn` is empty only for local HTTP emulation; AWS mode rejects plain HTTP as non-production-ready and requires TLS termination on the ALB.
+
+CloudFront note: the ALB currently accepts internet traffic on its listener port and reports `api.cloudfront_restriction_pending = true`. The frontend unit narrows ALB ingress to CloudFront managed prefixes and verifies cookie/header forwarding; do not treat the current setup as a restricted production route.
+
 | Contract | Foundation decision |
 | --- | --- |
 | Inputs | `local_emulation=true`, `local_endpoint=http://floci:4566`, `region=us-east-1`, `name=challenge`, `protect_database=false`. Region is a builder choice, with a/b AZ suffixes; verify AZ availability before any future AWS use. `local.tfvars.example` is safe to copy to an ignored `.tfvars`. |
