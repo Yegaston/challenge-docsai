@@ -66,6 +66,42 @@ describe("chat-first support", () => {
     expect(JSON.parse(String(posts(mock, createPath)[0][1]?.body))).toMatchObject({ text: "Where is my transfer?", idempotencyKey: expect.any(String) });
     expect(posts(mock, createPath)).toHaveLength(1);
   });
+  it.each(["create", "reply", "human"]) ("clears accepted %s draft while network is pending", async mode => {
+    let release!: (response: Response) => void;
+    const path = mode === "create" ? createPath : mode === "human" ? `/api/conversations/${id}/messages` : replyPath;
+    const route = { [`POST ${path}`]: () => new Promise<Response>(resolve => { release = resolve; }) };
+    const mock = mode === "create" ? await enter(route) : mode === "human" ? await open({ ...route, [`/api/conversations/${id}`]: () => json({ ...row("escalated"), messages }) }) : await open(route);
+    const input = screen.getByRole("textbox", { name: mode === "create" ? "How can we help with your transfer?" : mode === "human" ? "Message human support" : "Reply to the agent" });
+    fireEvent.change(input, { target: { value: "  June 1  " } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    expect(input).toHaveProperty("value", "");
+    expect(screen.getByText("June 1")).toBeTruthy();
+    expect(JSON.parse(String(posts(mock, path)[0][1]?.body))).toMatchObject({ text: "June 1", idempotencyKey: expect.any(String) });
+    release(mode === "human" ? json({}, 201) : sse());
+    await waitFor(() => expect(screen.getByRole("textbox", { name: mode === "create" ? "How can we help with your transfer?" : mode === "human" ? "Message human support" : "Reply to the agent" })).toHaveProperty("value", ""));
+  });
+  it("clears a transfer-prefilled new-chat draft immediately while the stream is pending", async () => {
+    let release!: (response: Response) => void;
+    const mock = await enter({ [`POST ${createPath}`]: () => new Promise<Response>(resolve => { release = resolve; }) });
+    window.history.pushState(null, "", `/chat?transfer=${options[0].id}`);
+    fireEvent.popState(window);
+    const input = screen.getByLabelText("How can we help with your transfer?");
+    expect(input).toHaveProperty("value", `Check synthetic transfer ${options[0].id}`);
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    expect(posts(mock, createPath)).toHaveLength(1);
+    expect(input).toHaveProperty("value", "");
+    await waitFor(() => expect(input).toHaveProperty("value", ""));
+    release(sse());
+  });
+  it("restores a rejected create draft only while composer remains empty", async () => {
+    const mock = await enter({ [`POST ${createPath}`]: () => json({}, 400) });
+    const input = screen.getByLabelText("How can we help with your transfer?");
+    fireEvent.change(input, { target: { value: "  Original  " } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await screen.findByRole("alert");
+    expect(input).toHaveProperty("value", "  Original  ");
+    expect(posts(mock, createPath)).toHaveLength(1);
+  });
   it.each([409, 503])("retries uncertain create using same key after %i", async status => {
     let count = 0; const mock = await enter({ [`POST ${createPath}`]: () => ++count === 1 ? json({}, status) : sse(), [`/api/conversations/${id}`]: () => json({ ...row(), messages }) });
     fireEvent.change(screen.getByLabelText("How can we help with your transfer?"), { target: { value: "Where is it?" } });
@@ -98,11 +134,26 @@ describe("chat-first support", () => {
     let count = 0; const mock = await open({ [`POST ${replyPath}`]: () => ++count === 1 ? Promise.reject(new Error("offline")) : sse() });
     fireEvent.click(screen.getByRole("button", { name: "Enter details" }));
     expect(document.activeElement).toBe(screen.getByLabelText("Reply to the agent"));
+    fireEvent.change(screen.getByLabelText("Reply to the agent"), { target: { value: "Unrelated draft" } });
     fireEvent.click(screen.getByRole("button", { name: "Transfer one" }));
+    expect(screen.getByLabelText("Reply to the agent")).toHaveProperty("value", "Unrelated draft");
     fireEvent.click(await screen.findByRole("button", { name: "Retry same action" }));
     await waitFor(() => expect(posts(mock, replyPath)).toHaveLength(2));
     expect(posts(mock, replyPath).map(([, init]) => init?.body)).toEqual([posts(mock, replyPath)[0][1]?.body, posts(mock, replyPath)[0][1]?.body]);
     expect(JSON.parse(String(posts(mock, replyPath)[0][1]?.body)).text).toBe("22222222-2222-4222-8222-222222222222");
+  });
+  it("preserves an unrelated draft when a quick transfer option completes successfully", async () => {
+    let release!: (response: Response) => void;
+    const mock = await open({ [`POST ${replyPath}`]: () => new Promise<Response>(resolve => { release = resolve; }) });
+    const input = screen.getByLabelText("Reply to the agent");
+    fireEvent.change(input, { target: { value: "Unrelated draft" } });
+    fireEvent.click(screen.getByRole("button", { name: "Transfer one" }));
+    expect(input).toHaveProperty("value", "Unrelated draft");
+    expect(posts(mock, replyPath)).toHaveLength(1);
+    release(sse());
+    await waitFor(() => expect(screen.getByLabelText("Reply to the agent")).toHaveProperty("value", "Unrelated draft"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send message" })).toHaveProperty("disabled", false));
+    expect(input).toHaveProperty("value", "Unrelated draft");
   });
   it("guards refresh between streamed deltas without duplicating persisted reply", async () => {
     let stream!: ReadableStreamDefaultController<Uint8Array>;

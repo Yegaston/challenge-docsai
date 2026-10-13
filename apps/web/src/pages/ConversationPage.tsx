@@ -42,9 +42,10 @@ export function Thread({ support = false }: { support?: boolean }) {
   async function send(event: FormEvent) {
     event.preventDefault(); if (!token || !id || sending.current || pending || uncertain || !text.trim()) return;
     const current = { text: text.trim(), key: crypto.randomUUID() }; attempt.current = current;
-    await sendAttempt(current);
+    setText("");
+    await sendAttempt(current, text);
   }
-  async function sendAttempt(current: { text: string; key: string }) {
+  async function sendAttempt(current: { text: string; key: string }, originalDraft?: string) {
     if (!token || !id || sending.current || pending || !thread) return;
     attempt.current = current;
     sending.current = true;
@@ -59,14 +60,14 @@ export function Thread({ support = false }: { support?: boolean }) {
     setPending(false); setActivity(agent && 'kind' in result && result.kind === "done" ? "Response ready." : "");
     if (agent) {
       if ('kind' in result && result.kind === "unauthorized") { clear(sessionInvalidMessage); return; }
-      if ('kind' in result && result.kind === "done") { attempt.current = null; setUncertain(false); setText(""); setProvisional(""); refresh(); return; }
+      if ('kind' in result && result.kind === "done") { attempt.current = null; setUncertain(false); setProvisional(""); refresh(); return; }
       if ('kind' in result && result.kind === "uncertain") { setUncertain(true); setError(result.instruction); return; }
-      attempt.current = null; setError("Message rejected. Refresh before another action."); refresh(); return;
+      attempt.current = null; if (originalDraft !== undefined) setText(previous => previous || originalDraft); setError("Message rejected. Refresh before another action."); refresh(); return;
     }
     if ('status' in result && result.status === 401) { clear(sessionInvalidMessage); return; }
-    if ('status' in result && result.status === 201) { attempt.current = null; setText(""); refresh(); return; }
+    if ('status' in result && result.status === 201) { attempt.current = null; refresh(); return; }
     if ('status' in result && [0, 409, 503].includes(result.status)) { setUncertain(true); setError("Outcome uncertain. Refresh to reconcile; do not resend automatically. You may retry this same action with its original key or explicitly start a new action."); }
-    else { attempt.current = null; setError("Message not sent. Check the conversation status and try again."); refresh(); }
+    else { attempt.current = null; if (originalDraft !== undefined) setText(previous => previous || originalDraft); setError("Message not sent. Check the conversation status and try again."); refresh(); }
   }
   async function escalate() {
     if (!token || !id || pending || handoffUncertain) return;

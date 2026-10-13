@@ -19,7 +19,7 @@ it("runs real SDK clarification, ambiguity and owner-scoped tool decisions witho
   expect(find).toHaveBeenCalledWith("owner-a", "25.00", "2026-01-01");
   expect(JSON.stringify(ambiguous.activity)).not.toMatch(/25\.00|2026-01-01|a1111111|a2222222/);
   const foreign = await agent.run("owner-b", `status ${row.id}`, []);
-  expect(foreign.text).toContain("provide");
+  expect(foreign.text).toContain("not found in your synthetic transfers");
   expect(status).toHaveBeenCalledWith("owner-b", row.id);
   expect(JSON.stringify(foreign)).not.toContain("pending");
 });
@@ -115,6 +115,47 @@ it("grounds Spanish explicit ID status and does not classify English me as Spani
   const agent = createTransferAgent({ model }, { find: vi.fn(), status });
   expect((await agent.run("owner-a", `Estado de transferencia ${row.id}`, [])).text).toMatch(/transferencia sintética.*pendiente/i);
   expect((await agent.run("owner-a", "Help me find a transfer", [])).text).toMatch(/synthetic transfers|Please provide/i);
+});
+
+it("checks one exact seeded UUID without any model call, including Spanish and unavailable provider", async () => {
+  const seeded = { ...row, id: "a3333333-3333-4333-8333-333333333333" };
+  const status = vi.fn(async (owner: string, id: string) => owner === "owner-a" && id === seeded.id ? seeded : undefined);
+  const doGenerate = vi.fn(async () => response({ type: "text", text: "unverified" }));
+  const model = new MockLanguageModelV3({ doGenerate });
+  const lookup = { find: vi.fn(), status };
+  const agent = createTransferAgent({ model }, lookup);
+  const result = await agent.run("owner-a", `Estado de transferencia ${seeded.id}`, []);
+  expect(result).toMatchObject({ needsClarification: false });
+  expect(result.text).toMatch(/transferencia sintética.*pendiente/i);
+  expect(JSON.stringify(result.activity)).not.toMatch(/a3333333|25\.00|pending/);
+  expect((await createTransferAgent({ model: undefined as never }, lookup).run("owner-a", `Check ${seeded.id}`, [])).text).toContain("pending");
+  for (const [owner, id] of [["owner-b", seeded.id], ["owner-a", "a4444444-4444-4444-8444-444444444444"]]) {
+    const missing = await agent.run(owner, `Check ${id}`, []);
+    expect(missing.text).toContain("not found in your synthetic transfers");
+    expect(missing.text).not.toMatch(/provide.*ID|pending|25\.00/i);
+    expect(missing).toMatchObject({ needsClarification: true });
+    expect(missing.options).toEqual(expect.arrayContaining([{ kind: "details", label: "Provide amount and date" }, { kind: "handoff", label: "Contact support" }]));
+  }
+  const spanishMissing = await agent.run("owner-b", `Estado de transferencia ${seeded.id}`, []);
+  expect(spanishMissing.options).toEqual(expect.arrayContaining([{ kind: "details", label: "Indicar importe y fecha" }, { kind: "handoff", label: "Hablar con soporte" }]));
+  expect(status).toHaveBeenCalledWith("owner-a", seeded.id);
+  expect(status).toHaveBeenCalledWith("owner-b", seeded.id);
+  expect(doGenerate).not.toHaveBeenCalled();
+  await expect(createTransferAgent({ model: undefined as never }, lookup).run("owner-a", "where?", [])).rejects.toThrow("agent_unavailable");
+});
+
+it("asks which of two distinct UUIDs without a lookup or model invocation", async () => {
+  const status = vi.fn();
+  const doGenerate = vi.fn();
+  const agent = createTransferAgent({ model: new MockLanguageModelV3({ doGenerate }) }, { find: vi.fn(), status });
+  const result = await agent.run("owner-a", `Check ${row.id} and a3333333-3333-4333-8333-333333333333`, []);
+  expect(result.text).toMatch(/choose one/i);
+  expect(result.needsClarification).toBe(true);
+  expect(result.options).toEqual(expect.arrayContaining([{ kind: "details", label: "Choose one transfer ID" }, { kind: "handoff", label: "Contact support" }]));
+  const spanish = await agent.run("owner-a", `Estado de transferencia ${row.id} y a3333333-3333-4333-8333-333333333333`, []);
+  expect(spanish.options).toEqual(expect.arrayContaining([{ kind: "details", label: "Elegir un ID de transferencia" }, { kind: "handoff", label: "Hablar con soporte" }]));
+  expect(status).not.toHaveBeenCalled();
+  expect(doGenerate).not.toHaveBeenCalled();
 });
 
 const row = { id: "a1111111-1111-4111-8111-111111111111", amount: "25.00", date: "2026-01-01", status: "pending" };

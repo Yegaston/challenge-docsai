@@ -12,6 +12,7 @@ export default function ChatPage() {
   const token = session?.token;
   const navigate = useNavigate();
   const [params] = useSearchParams();
+  const transferId = params.get("transfer");
   const [list, setList] = useState<Conversation[] | null>(null);
   const [error, setError] = useState("");
   const [text, setText] = useState(() => {
@@ -19,9 +20,8 @@ export default function ChatPage() {
     return id && /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(id) ? `Check synthetic transfer ${id}` : "";
   });
   useEffect(() => {
-    const id = params.get("transfer");
-    if (id && /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(id)) setText(`Check synthetic transfer ${id}`);
-  }, [params]);
+    if (transferId && /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(transferId)) setText(`Check synthetic transfer ${transferId}`);
+  }, [transferId]);
   const [pending, setPending] = useState(false);
   const [uncertain, setUncertain] = useState(false);
   const [activity, setActivity] = useState(""); const [provisional, setProvisional] = useState("");
@@ -42,9 +42,10 @@ export default function ChatPage() {
     event.preventDefault();
     if (!token || !text.trim() || sending.current || pending || uncertain) return;
     const current = { text: text.trim(), key: crypto.randomUUID() }; attempt.current = current;
-    await create(current);
+    setText("");
+    await create(current, text);
   }
-  async function create(current: { text: string; key: string }) {
+  async function create(current: { text: string; key: string }, originalDraft?: string) {
     if (!token || sending.current || pending) return;
     sending.current = true;
     setPending(true); setError("");
@@ -60,7 +61,7 @@ export default function ChatPage() {
     if (result.kind === "unauthorized") { clear(sessionInvalidMessage); return; }
     if (result.kind === "done") { attempt.current = null; navigate(`/chat/${result.data.id}`); return; }
     if (result.kind === "uncertain") { setUncertain(true); setError(result.instruction); }
-    else { attempt.current = null; setError(result.instruction); }
+    else { attempt.current = null; if (originalDraft !== undefined) setText(previous => previous || originalDraft); setError(result.instruction); }
   }
   return <section className="chat-layout"><ChatHistory><h2 className="text-lg font-semibold">Your conversations</h2><p className="text-sm text-slate-600">Past chats</p>{list === null ? <p role="status">Loading conversations…</p> : list.length === 0 ? <p>No conversations yet. Ask a question to begin.</p> : <ul className="space-y-2">{list.map(row => <li key={row.id}><Link className="underline" to={`/chat/${row.id}`}>Conversation {new Date(row.createdAt).toLocaleString()} — {row.status}</Link></li>)}</ul>}</ChatHistory><div className="chat-main"><div className="chat-messages"><div><h2 className="text-2xl font-semibold">New chat</h2><p className="text-slate-600">Ask about a transfer or another support question.</p>
     </div>
