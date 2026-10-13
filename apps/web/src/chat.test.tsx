@@ -1,5 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { useState, type FormEvent } from "react";
+import ChatComposer from "./components/ChatComposer";
 import App from "./App";
 import { baseRoutes, createdAt, json, mockApi, submitLogin } from "./test/helpers";
 
@@ -21,11 +23,44 @@ async function open(routes: Record<string, () => Response | Promise<Response>> =
   fireEvent.click(await screen.findByRole("link", { name: /Conversation/ }));
   await screen.findByText("Which transfer date?"); return mock;
 }
+describe("shared composer", () => {
+  function Harness({ submit, disabled = false }: { submit: (value: string) => void; disabled?: boolean }) {
+    const [value, setValue] = useState("");
+    function onSubmit(event: FormEvent) { event.preventDefault(); submit(value); }
+    return <ChatComposer id="test-message" label="Message" value={value} onChange={setValue} onSubmit={onSubmit} disabled={disabled} pending={disabled} />;
+  }
+  it("sends on Enter and button, but keeps Shift+Enter as a newline", () => {
+    const submit = vi.fn(); render(<Harness submit={submit} />);
+    const input = screen.getByRole("textbox", { name: "Message" });
+    fireEvent.change(input, { target: { value: "First" } });
+    fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
+    expect(submit).not.toHaveBeenCalled();
+    fireEvent.change(input, { target: { value: "First\nSecond" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(submit).toHaveBeenCalledWith("First\nSecond");
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    expect(submit).toHaveBeenCalledTimes(2);
+  });
+  it("ignores IME Enter and disables empty and pending submissions", () => {
+    const submit = vi.fn(); const { rerender } = render(<Harness submit={submit} />);
+    const input = screen.getByRole("textbox", { name: "Message" });
+    const button = screen.getByRole("button", { name: "Send message" });
+    expect(button).toHaveProperty("disabled", true);
+    fireEvent.change(input, { target: { value: "Hello" } });
+    fireEvent.compositionStart(input);
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(submit).not.toHaveBeenCalled();
+    fireEvent.compositionEnd(input);
+    rerender(<Harness submit={submit} disabled />);
+    expect(input).toHaveProperty("disabled", true);
+    expect(button).toHaveProperty("disabled", true);
+  });
+});
 describe("chat-first support", () => {
   it("creates through SSE and shows persisted answer and tool summary", async () => {
     const mock = await enter({ [`POST ${createPath}`]: sse, [`/api/conversations/${id}`]: () => json({ ...row(), messages }) });
     fireEvent.change(screen.getByLabelText("How can we help with your transfer?"), { target: { value: "Where is my transfer?" } });
-    fireEvent.click(screen.getByRole("button", { name: "Start chat" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
     await screen.findByText("Which transfer date?");
     expect(await screen.findByText("Looked up synthetic transfer status")).toBeTruthy();
     expect(JSON.parse(String(posts(mock, createPath)[0][1]?.body))).toMatchObject({ text: "Where is my transfer?", idempotencyKey: expect.any(String) });
@@ -34,7 +69,7 @@ describe("chat-first support", () => {
   it.each([409, 503])("retries uncertain create using same key after %i", async status => {
     let count = 0; const mock = await enter({ [`POST ${createPath}`]: () => ++count === 1 ? json({}, status) : sse(), [`/api/conversations/${id}`]: () => json({ ...row(), messages }) });
     fireEvent.change(screen.getByLabelText("How can we help with your transfer?"), { target: { value: "Where is it?" } });
-    fireEvent.click(screen.getByRole("button", { name: "Start chat" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
     fireEvent.click(await screen.findByRole("button", { name: "Retry same request" }));
     await waitFor(() => expect(posts(mock, createPath)).toHaveLength(2));
     expect(posts(mock, createPath).map(([, init]) => init?.body)).toEqual([posts(mock, createPath)[0][1]?.body, posts(mock, createPath)[0][1]?.body]);
@@ -47,7 +82,7 @@ describe("chat-first support", () => {
     const mock = mode === "create" ? await enter({ [`POST ${route}`]: handler }) : await open({ [`POST ${route}`]: handler });
     if (mode === "create") fireEvent.change(screen.getByLabelText("How can we help with your transfer?"), { target: { value: "Where?" } });
     else fireEvent.change(screen.getByLabelText("Reply to the agent"), { target: { value: "Where?" } });
-    fireEvent.click(screen.getByRole("button", { name: mode === "create" ? "Start chat" : "Send message" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
     const retry = await screen.findByRole("button", { name: mode === "create" ? "Retry same request" : "Retry same action" });
     fireEvent.click(retry);
     await waitFor(() => expect(posts(mock, route)).toHaveLength(2));
@@ -98,6 +133,38 @@ describe("chat-first support", () => {
     fireEvent.click(screen.getByRole("button", { name: "Refresh conversation" }));
     await waitFor(() => expect(screen.getAllByText("Saved answer")).toHaveLength(1));
     expect(posts(mock, replyPath)).toHaveLength(1);
+  });
+  it("clears old completion on a subsequent reply and on refresh", async () => {
+    let release!: (response: Response) => void;
+    let count = 0;
+    await open({ [`POST ${replyPath}`]: () => ++count === 1 ? sse() : new Promise<Response>(resolve => { release = resolve; }) });
+    const input = screen.getByLabelText("Reply to the agent");
+    fireEvent.change(input, { target: { value: "First" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await waitFor(() => expect(count).toBe(1));
+    await screen.findByText("Which transfer date?");
+    fireEvent.click(screen.getByRole("button", { name: "Refresh conversation" }));
+    expect(screen.queryByText("Response ready.")).toBeNull();
+    await screen.findByText("Which transfer date?");
+    fireEvent.change(screen.getByLabelText("Reply to the agent"), { target: { value: "Second" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await screen.findByText("Preparing a response…");
+    expect(screen.queryByText("Response ready.")).toBeNull();
+    release(sse());
+    await waitFor(() => expect(count).toBe(2));
+  });
+  it("does not show agent completion or preparation during human-support replies", async () => {
+    let release!: (response: Response) => void;
+    await enter({ [`/api/conversations/${id}`]: () => json({ ...row("escalated"), messages }), [`POST /api/conversations/${id}/messages`]: () => new Promise<Response>(resolve => { release = resolve; }) }, "support");
+    fireEvent.click(await screen.findByRole("link", { name: /Escalated conversation/ }));
+    await screen.findByText("Which transfer date?");
+    fireEvent.change(screen.getByLabelText("Reply as human support"), { target: { value: "Hello" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    expect(screen.queryByText("Preparing a response…")).toBeNull();
+    expect(screen.queryByText("Response ready.")).toBeNull();
+    release(json({}, 201));
+    await waitFor(() => expect(screen.getByLabelText("Reply as human support")).toHaveProperty("value", ""));
+    expect(screen.queryByText("Response ready.")).toBeNull();
   });
   it("keeps support human replies on JSON and handoff available", async () => {
     const mock = await enter({ [`/api/conversations/${id}`]: () => json({ ...row("escalated"), messages }), [`POST /api/conversations/${id}/messages`]: () => json({}, 201) }, "support");

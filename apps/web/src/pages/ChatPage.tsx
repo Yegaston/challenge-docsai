@@ -4,6 +4,8 @@ import { callApi } from "@/lib/api";
 import { sessionInvalidMessage, useSession } from "@/session";
 import type { Conversation } from "@/pages/ConversationPage";
 import { postChatStream } from "@/lib/chat-stream";
+import ChatComposer from "@/components/ChatComposer";
+import ChatHistory from "@/components/ChatHistory";
 
 export default function ChatPage() {
   const { session, clear } = useSession();
@@ -47,9 +49,9 @@ export default function ChatPage() {
     sending.current = true;
     setPending(true); setError("");
     const controller = new AbortController(); sendActive.current = controller;
-    setActivity("Checking transfer details…"); setProvisional("");
+    setActivity("Preparing a response…"); setProvisional("");
     const result = await postChatStream(token, "/api/conversations/stream", { text: current.text, idempotencyKey: current.key }, controller.signal, event => {
-      if (event.event === "status") setActivity("Checking transfer details…");
+      if (event.event === "status") setActivity("Preparing a response…");
       if (event.event === "delta") { setActivity(""); setProvisional(previous => previous + event.text); }
     });
     if (controller.signal.aborted) return;
@@ -60,12 +62,12 @@ export default function ChatPage() {
     if (result.kind === "uncertain") { setUncertain(true); setError(result.instruction); }
     else { attempt.current = null; setError(result.instruction); }
   }
-  return <section className="chat-layout"><aside className="chat-sidebar"><h2 className="text-lg font-semibold">Your conversations</h2><p className="text-sm text-slate-600">Past chats</p>{list === null ? <p role="status">Loading conversations…</p> : list.length === 0 ? <p>No conversations yet. Ask a question to begin.</p> : <ul className="space-y-2">{list.map(row => <li key={row.id}><Link className="underline" to={`/chat/${row.id}`}>Conversation {new Date(row.createdAt).toLocaleString()} — {row.status}</Link></li>)}</ul>}</aside><div className="flex min-h-full flex-col justify-between gap-6"><div><h2 className="text-2xl font-semibold">New chat</h2><p className="text-slate-600">Ask about a transfer. We will check available details before answering.</p>
-    </div><form onSubmit={submit} className="chat-composer space-y-2"><label htmlFor="question">How can we help with your transfer?</label><textarea id="question" className="w-full rounded border p-3" maxLength={2000} value={text} onChange={e => setText(e.target.value)} disabled={pending || uncertain} required /><button className="rounded border px-3 py-2" disabled={pending || uncertain}>{pending ? "Starting…" : "Start chat"}</button></form>
+  return <section className="chat-layout"><ChatHistory><h2 className="text-lg font-semibold">Your conversations</h2><p className="text-sm text-slate-600">Past chats</p>{list === null ? <p role="status">Loading conversations…</p> : list.length === 0 ? <p>No conversations yet. Ask a question to begin.</p> : <ul className="space-y-2">{list.map(row => <li key={row.id}><Link className="underline" to={`/chat/${row.id}`}>Conversation {new Date(row.createdAt).toLocaleString()} — {row.status}</Link></li>)}</ul>}</ChatHistory><div className="chat-main"><div className="chat-messages"><div><h2 className="text-2xl font-semibold">New chat</h2><p className="text-slate-600">Ask about a transfer or another support question.</p>
+    </div>
     {attempt.current && <div className="chat-bubble customer">{attempt.current.text}</div>}
-    {activity && <p role="status" aria-live="polite">{activity}</p>}
+    {activity && <p role="status" aria-live="polite" className="chat-activity">{activity === "Preparing a response…" && <span className="chat-dots" aria-hidden="true"><i /><i /><i /></span>}{activity}</p>}
     {provisional && <div className="chat-bubble agent" aria-live="off">{provisional}</div>}
     {error && <p role="alert">{error}</p>}
     {uncertain && <><button className="rounded border px-3 py-2" onClick={() => { const controller = new AbortController(); loadActive.current?.abort(); loadActive.current = controller; void load(controller.signal); }}>Refresh conversations</button> <button className="rounded border px-3 py-2" disabled={pending} onClick={() => { if (attempt.current) void create(attempt.current); }}>Retry same request</button> <button className="rounded border px-3 py-2" disabled={pending} onClick={() => { if (sending.current) return; attempt.current = null; setUncertain(false); setError(""); }}>Start a new action (previous outcome may have succeeded)</button></>}
-    </div></section>;
+    </div><ChatComposer id="question" label="How can we help with your transfer?" value={text} onChange={setText} onSubmit={submit} disabled={pending || uncertain} pending={pending} /></div></section>;
 }

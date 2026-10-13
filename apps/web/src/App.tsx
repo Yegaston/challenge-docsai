@@ -16,7 +16,7 @@ function ProtectedPages({ role }: { role: "customer" | "support" }) {
   const navigate = useNavigate();
   if (!session) return <Navigate to="/login" replace />;
   if (session.user?.role !== role) return <Navigate to={session.user?.role === "support" ? "/support" : "/chat"} replace />;
-  return <main className="mx-auto min-h-screen max-w-6xl space-y-6 px-4 py-6 md:px-8">
+  return <main className="app-shell mx-auto max-w-6xl px-4 py-6 md:px-8">
     <header className="flex flex-wrap items-center justify-between gap-3 border-b pb-4">
       <h1 className="text-xl font-semibold">Support Ticket AI</h1>
       <nav aria-label="Account and tickets" className="flex flex-wrap items-center gap-4 text-sm">
@@ -25,7 +25,7 @@ function ProtectedPages({ role }: { role: "customer" | "support" }) {
         <Button variant="outline" size="sm" onClick={() => { logout(); navigate("/login"); }}>Log out</Button>
       </nav>
     </header>
-    <Outlet />
+    <div className="app-content"><Outlet /></div>
   </main>;
 }
 function AppRoutes() {
