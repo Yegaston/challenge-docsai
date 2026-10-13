@@ -5,6 +5,7 @@ import LoginPage from "@/pages/LoginPage";
 import NewTicketPage from "@/pages/NewTicketPage";
 import TicketDetailPage from "@/pages/TicketDetailPage";
 import ChatPage from "@/pages/ChatPage";
+import TransfersPage from "@/pages/TransfersPage";
 import ConversationPage from "@/pages/ConversationPage";
 import SupportInboxPage from "@/pages/SupportInboxPage";
 import SupportConversationPage from "@/pages/SupportConversationPage";
@@ -19,7 +20,7 @@ function ProtectedPages({ role }: { role: "customer" | "support" }) {
     <header className="flex flex-wrap items-center justify-between gap-3 border-b pb-4">
       <h1 className="text-xl font-semibold">Support Ticket AI</h1>
       <nav aria-label="Account and tickets" className="flex flex-wrap items-center gap-4 text-sm">
-        {role === "customer" ? <><Link to="/chat">Chat</Link><Link to="/tickets/new">New ticket</Link><Link to="/tickets">Tickets</Link></> : <Link to="/support">Support inbox</Link>}
+        {role === "customer" ? <><Link to="/chat">Chat</Link><Link to="/tickets/new">New ticket</Link><Link to="/tickets">Tickets</Link><Link to="/transfers">Demo transfers</Link></> : <Link to="/support">Support inbox</Link>}
         {session.user && <span>{session.user.email}</span>}
         <Button variant="outline" size="sm" onClick={() => { logout(); navigate("/login"); }}>Log out</Button>
       </nav>
@@ -32,6 +33,7 @@ function AppRoutes() {
     <Route path="/login" element={<LoginPage />} />
     <Route element={<ProtectedPages role="customer" />}>
       <Route path="/chat" element={<ChatPage />} />
+      <Route path="/transfers" element={<TransfersPage />} />
       <Route path="/chat/:id" element={<ConversationPage />} />
       <Route path="/tickets/new" element={<NewTicketPage />} />
       <Route path="/tickets" element={<HistoryPage />} />

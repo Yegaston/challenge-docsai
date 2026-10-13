@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { callApi } from "@/lib/api";
 import { sessionInvalidMessage, useSession } from "@/session";
 import type { Conversation } from "@/pages/ConversationPage";
@@ -9,9 +9,17 @@ export default function ChatPage() {
   const { session, clear } = useSession();
   const token = session?.token;
   const navigate = useNavigate();
+  const [params] = useSearchParams();
   const [list, setList] = useState<Conversation[] | null>(null);
   const [error, setError] = useState("");
-  const [text, setText] = useState("");
+  const [text, setText] = useState(() => {
+    const id = new URLSearchParams(window.location.search).get("transfer");
+    return id && /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(id) ? `Check synthetic transfer ${id}` : "";
+  });
+  useEffect(() => {
+    const id = params.get("transfer");
+    if (id && /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(id)) setText(`Check synthetic transfer ${id}`);
+  }, [params]);
   const [pending, setPending] = useState(false);
   const [uncertain, setUncertain] = useState(false);
   const [activity, setActivity] = useState(""); const [provisional, setProvisional] = useState("");
