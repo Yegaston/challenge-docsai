@@ -63,6 +63,19 @@ it("bounds attempted tool calls and rejects provider failures without claiming s
   await expect(createTransferAgent({ model: timedOut }, { find, status }).run("owner", "status", [])).rejects.toThrow("agent_unavailable");
 });
 
+it("all owner-scoped agent lookups exclude records older than the creation cutoff", async () => {
+  const query = vi.fn(async (_config: { text: string }) => ({ rows: [] }));
+  const lookup = createTransfers({ query } as any);
+  await lookup.find("owner", "25.00", "2026-01-01");
+  await lookup.recent!("owner", "2026-01-01");
+  await lookup.status("owner", row.id);
+  expect(query).toHaveBeenCalledTimes(3);
+  for (const [config] of query.mock.calls) {
+    expect(config.text).toContain("owner_id = $1");
+    expect(config.text).toContain("created_at >= now() - interval '90 days'");
+  }
+});
+
 it("bounds both transfer queries with the pool statement timeout", async () => {
   const query = vi.fn(async (_config: unknown) => { throw new Error("statement timeout"); });
   const lookup = createTransfers({ query } as any);

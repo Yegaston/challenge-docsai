@@ -1,6 +1,7 @@
 import { Pool } from "pg";
 import { createTransferAgent, createTransferProvider } from "./modules/conversations/services/transfer-agent.js";
 import { createTransfers } from "./modules/transfers/transfers.js";
+import { createFixtureRepository, createFixtureRouter } from "./modules/transfers/fixtures.js";
 import { createConversations } from "./modules/conversations/repositories/conversations.repository.js";
 import { createConversationsService } from "./modules/conversations/services/conversations.service.js";
 import { createConversationsRouter } from "./modules/conversations/http/controller.js";
@@ -51,9 +52,13 @@ let stopRetention: (() => Promise<void>) | undefined;
 let stopAuditRetention: (() => Promise<void>) | undefined;
 let stopConversationRetention: (() => Promise<void>) | undefined;
 let stopEscalation: (() => Promise<void>) | undefined;
+let stopFixtures: (() => void) | undefined;
+let fixtures;
 try {
   const authService = await createAuthService({ users: createUsers(pool), secret: process.env.JWT_SECRET });
   auth = createAuthRouter(authService);
+  const fixtureRepo = createFixtureRepository(pool);
+  fixtures = createFixtureRouter(fixtureRepo, authService);
   const escalation = createConversationEscalation(pool);
   conversations = createConversationsRouter(createConversationsService(createConversations(pool), createTransferAgent(createTransferProvider(process.env.OPENROUTER_API_KEY, process.env.OPENROUTER_MODEL), createTransfers(pool)), escalation), authService);
   const ticketsService = createTicketsService(createTickets(pool));
@@ -67,6 +72,9 @@ try {
   stopAuditRetention = startAuditRetention(createAuditRetention(pool));
   stopConversationRetention = startConversationRetention(createConversationRetention(pool));
   stopEscalation = startConversationEscalation(escalation);
+  void fixtureRepo.purge().catch(() => console.warn("Fixture retention sweep failed; will retry."));
+  const fixtureTimer = setInterval(() => { void fixtureRepo.purge().catch(() => console.warn("Fixture retention sweep failed; will retry.")); }, 15 * 60 * 1000);
+  stopFixtures = () => clearInterval(fixtureTimer);
 } catch {
   // Startup errors may contain driver details or credentials: never print them.
   console.error("Authentication initialization failed. Check database access and DEMO_EMAIL, DEMO_PASSWORD, JWT_SECRET configuration (README.md).");
@@ -74,7 +82,7 @@ try {
   process.exit(1);
 }
 
-const app = createApp(createHealthRepository(pool).check, auth, tickets, conversations);
+const app = createApp(createHealthRepository(pool).check, auth, tickets, conversations, fixtures);
 const server = app.listen(port, "0.0.0.0", () => {
   console.log(`API listening on port ${port}`);
 });
@@ -90,6 +98,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
         await stopAuditRetention?.();
         await stopConversationRetention?.();
         await stopEscalation?.();
+        stopFixtures?.();
         await pool.end();
       })().then(() => {
         clearTimeout(deadline);

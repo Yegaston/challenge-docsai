@@ -5,13 +5,13 @@ export type TransferLookup = { find(owner: string, amount: string, date: string)
 export function createTransfers(pool: Pick<Pool, "query">): TransferLookup {
   return {
     async find(owner, amount, date) {
-      return (await pool.query<Transfer>(timed("SELECT id, amount::text, transfer_date::text AS date, status FROM synthetic_transfers WHERE owner_id = $1 AND amount = $2 AND transfer_date = $3 ORDER BY id LIMIT 5", [owner, amount, date]))).rows;
+      return (await pool.query<Transfer>(timed("SELECT id, amount::text, transfer_date::text AS date, status FROM synthetic_transfers WHERE owner_id = $1 AND amount = $2 AND transfer_date = $3 AND created_at >= now() - interval '90 days' ORDER BY id LIMIT 5", [owner, amount, date]))).rows;
     },
     async recent(owner, date) {
-      return (await pool.query<Transfer>(timed("SELECT id, amount::text, transfer_date::text AS date, status FROM synthetic_transfers WHERE owner_id = $1 AND transfer_date = $2 ORDER BY id LIMIT 4", [owner, date]))).rows;
+      return (await pool.query<Transfer>(timed("SELECT id, amount::text, transfer_date::text AS date, status FROM synthetic_transfers WHERE owner_id = $1 AND transfer_date = $2 AND created_at >= now() - interval '90 days' ORDER BY id LIMIT 4", [owner, date]))).rows;
     },
     async status(owner, id) {
-      return (await pool.query<Transfer>(timed("SELECT id, amount::text, transfer_date::text AS date, status FROM synthetic_transfers WHERE owner_id = $1 AND id = $2", [owner, id]))).rows[0];
+      return (await pool.query<Transfer>(timed("SELECT id, amount::text, transfer_date::text AS date, status FROM synthetic_transfers WHERE owner_id = $1 AND id = $2 AND created_at >= now() - interval '90 days'", [owner, id]))).rows[0];
     },
   };
 }
